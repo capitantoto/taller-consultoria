@@ -1,0 +1,77 @@
+---
+title: "Taller de Consultoria - TP1"
+author: "Gonzalo Barrera Borla"
+date: "8/25/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Setup
+```{r, message=F}
+library(tidyverse)
+```
+
+# Problema 1
+
+Se dan las duraciones (medidas en ciclos hasta la ruptura) de una muestra de rodamientos (“rulemanes”). Describir las características principales de la muestra (posición, dispersión, asimetría), y buscar una  distribución adecuada.
+
+Los funcionales de locación más habituales son la media $\mu$ y la mediana $\eta$, digamos. Reportamos sus estimadores puntuales muestrales, $\hat{\mu}=\bar{x}=n^{-1}\sum_i x_i$ y $\hat{\eta}=x^{(\frac{n}{2})}$ (donde $x^{(i)}$ denota el i-ésimo elemento de la muestra ordenada). 	Para la dispersión, es razonable usar el la raíz cuadrada del estimador puntual insesgado de la varianza, $s^2=(n-1)^{-1}\sum_i(x_i-\bar{x})^2$. Para la asimetría $\gamma$, construimos el estimador $b$ reemplazando en la definición de $\gamma$ a cada momento por su estimador insesgado:
+
+\begin{align}
+\gamma&=E\left[\left(\frac{X-\mu}{\sigma}\right)^3\right] \\
+b=\hat{\gamma}&=\frac{1}{n}\sum_{i=1}^{n}\left(\frac{x_i-\bar{x}}{s}\right)^3
+\end{align}
+
+
+```{r, message=F}
+df1 <- read_csv("data/1-1.csv")
+asimetria <- function(x) {
+  s <- sd(x)
+  x_ <- mean(x) # "x raya"
+  b <- ((x - x_) / s)^3
+  return(mean(b))
+}
+df1 %>%
+  summarise(
+    media = mean(duracion),
+    mediana = median(duracion),
+    disp = sd(duracion),
+    asim = asimetria(duracion)
+    ) %>%
+  knitr::kable(digits = 3)
+
+
+```
+
+Comparamos nuestra funcion de asimetría con la implementación de un paquete bien conocido de R para comprobar su coherencia:
+
+```{r}
+casi_iguales <- function(x, y, tol=1e-6) { abs(x-y) <= tol }  
+stopifnot(casi_iguales(
+  e1071::skewness(df1$duracion),
+  asimetria(df1$duracion)))
+```
+
+Investigamos gráficamente la posible distribución subyacente a los datos. Graficamos primero la distribución acumulada y densidad empírica, y luego usamos `fitdistrplus::descdist` para considerar posibles dustribuciones candidatas. Con tan pocos datos, es conveniente darse una idea de la dispersión de la asimetría y kurtosis estimadas a partir de la muestra, haciendo _bootstrap_. Vemos que tal vez una distribución beta o gamma sería adecuada.
+
+```{r}
+df1 %>%
+  # Fn := distribucion empirica
+  mutate(Fn = cume_dist(duracion)) %>%
+  ggplot(aes(duracion, Fn)) +
+  geom_point()
+   
+df1 %>%
+  # Fn := distribucion empirica
+  mutate(Fn = cume_dist(duracion)) %>%
+  ggplot(aes(duracion)) +
+  geom_density()
+
+library(fitdistrplus)
+descdist(df1$duracion, boot = 1000)
+```
+
+
