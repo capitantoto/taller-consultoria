@@ -57,6 +57,7 @@ stopifnot(casi_iguales(
 
 Investigamos gráficamente la posible distribución subyacente a los datos. Graficamos primero la distribución acumulada y densidad empírica, y luego usamos `fitdistrplus::descdist` para considerar posibles dustribuciones candidatas. Con tan pocos datos, es conveniente darse una idea de la dispersión de la asimetría y kurtosis estimadas a partir de la muestra, haciendo _bootstrap_. Vemos que tal vez una distribución beta o gamma sería adecuada.
 
+Referencia: [How to determine which distribution fits my data best?](https://stats.stackexchange.com/questions/132652/how-to-determine-which-distribution-fits-my-data-best)
 ```{r}
 df1 %>%
   # Fn := distribucion empirica
@@ -73,5 +74,78 @@ df1 %>%
 library(fitdistrplus)
 descdist(df1$duracion, boot = 1000)
 ```
+
+# Problema 2
+
+Se dan: el punto de ebullición del agua (PE) (en grados Fahrenheit) y la presión atmosférica (PA) (en pulgadas de mercurio), medidos a distintas alturas en los Alpes. Plantear un modelo que describa cómo varía PE en función de PA. ¿Con cuánta precisión se puede estimar PE en función de PA?. Comentar cualquier característica de los datos.
+
+Convertimos primero las unidades al sistema métrico, y las graficamos.
+
+```{r}
+df2 <- read_csv("data/1-2.csv")
+inHg_a_atm <- function(x) {x/29.921}
+fahrenheit_a_celsius <- function(x) { (x - 32)*5/9 }
+
+df2 <- df2 %>%
+  mutate(
+    id = seq_along(PA),
+    PE = map_dbl(PE, fahrenheit_a_celsius),
+    PA = map_dbl(PA, inHg_a_atm)) 
+
+df2 %>%
+  ggplot(aes(PA, PE)) +
+  geom_point()
+```
+
+Se observa una relación casi lineal ($PE=b + m\times PA$), salvo por una tozuda observación cerca de (0.9, 95.0). Intentemos una sencilla regresión lineal en la PA, y grafiquemos los residuos en función de la misma.
+```{r}
+library(broom)
+lm2 <- lm(PE ~ PA, df2)
+b <- round(lm2$coefficients[1], 2)
+m <- round(lm2$coefficients[2], 2)
+
+summary(lm2)
+```
+Tanto la ordenada al origen como la pendiente parecen ser sin duda significativas, y nuestro modelo ajustado queda:
+
+$$
+PE = `r b`^\circ C + `r m` \frac{^\circ C}{atm} \times PA 
+$$
+Vale aclarar que este modelo sólo tiene sentido sobre el soporte de los datos, es decir, cuando la presión atmosférica está en el rango $(`r range(df2$PA) %>% round(2)`)$. Si no, podríamos deducir incorrectamente que la temperatura de ebullición del agua en el vacío (0 atm.) es de `r b` grados, cuando en realidad es de ~-68 grados celsius ([referencia](https://www.engineeringtoolbox.com/water-evacuation-pressure-temperature-d_1686.html)).
+
+Observamos los "residuos" ($r_i = y_i - \hat{y}_i$) versus la presión atmosférica para ver con cuánta precisión se puede estimar el punto de ebullición, y examinarlos por si existe alguna estructura.
+```{r}
+df2 <- augment(lm2, data = df2)
+
+df2 %>%
+  ggplot(aes(PA, PE)) +
+  geom_point() +
+  geom_abline(intercept = b, slope = m, color = 'red')
+
+df2 %>%
+  ggplot(aes(PA, .resid, label=id)) +
+  geom_point() + 
+  geom_hline(yintercept = 0, color = 'gray') +
+  geom_text(
+    data = filter(df2, abs(.resid) > 0.5),
+    nudge_x = 0.01)
+```
+
+Vemos que en general, la predicción del punto de ebullición está errada por menos de $0.25^\circ C$, a excepción de la observación 12, donde el error es de `r filter(df2, id==12) %>% pull(".resid") %>% round(2)` grados.
+
+Se me ocurren dos caminos para mejorar este modelo. Uno, es realizar un ajuste robusto. Lo intentamos (con `RobStatTM::lmrobdetMM`), pero la situación no mejora demasiado. Una estrategia más sabia, sería plantear un modelo matemático con una descripción realista del fenómeno. Leyendo por la [internet](http://physicstasks.eu/1702/boiling-point-of-water-at-high-pressure) veo que la relación entre PA y PE es más bien exponencial, así que podríamos plantear un modelo tansformado acorde. Sin embargo, para el rango de PA considerado, pareciera má que razonable que la relación es lineal, y la santa observación #12 es más bien una mala medición de laboratorio.
+
+```{r}
+library(RobStatTM)
+cont <- lmrobdet.control(
+  bb = 0.5, efficiency = 0.85, family = "bisquare")
+lm2rob <- lmrobdetMM(PE ~ PA, data=df2, control=cont)
+df2 %>%
+  mutate(rob_resid = lm2rob$residuals) %>%
+  ggplot(aes(PA, rob_resid)) +
+  geom_point()
+```
+
+# Problema 3
 
 
