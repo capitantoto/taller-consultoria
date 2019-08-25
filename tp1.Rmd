@@ -148,4 +148,60 @@ df2 %>%
 
 # Problema 3
 
+Se investiga el efecto de la presión aplicada durante la manufactura del papel, en el “factor de ruptura” (la fuerza necesaria para desgarrarlo). Bajo cada valor de la presión P, se manufacturó  un lote de papel; de cada lote se eligieron 4 hojas, a cada una de las cuales se midió el factor de ruptura R. Se desea predecir R en función de P.
+
+Aprovechando que tenemos mediciones repetidas para cada uno de los 5 valores de P, comparamos la raíz cuadrada del estimador global de la varianza $s_0 = `r round(sd(df3$R), 2)`$, con la de los estimadores de la varianza para cada valor de P:
+```{r}
+df3 <- read_csv("data/1-3.csv")
+df3 %>%
+  group_by(P) %>%
+  summarise(s = sd(R)) %>%
+  knitr::kable(digits = 2)
+```
+
+Aún con pocos datos, se intuye que la varianza en R no es la misma para todo P. Pareciera haber _heterocedasticidad_, pero la relación entre P y la varianza de R no es lineal: $s$ es máximo para presiones "medias" de fabricación.
+
+Asumiendo que las mediciones de cada par $(P, R)$ son independientes entre sí, la matriz de covarianzas será diagonal, y en vez de utilizar $\Sigma = \sigma^2 \mathrm{I}_n$, podemos considerar una matriz $\Sigma = diag(\sigma_1^2, ..., \sigma_n^2)$, y estimar las varianzas de cada observación, con el estimador insesgado de la varianza para cada nivel de presión antes calculado.
+
+A continuación ajustamos ambos modelos, considerando (a) observaciones iid en general, y matriz de covarianza $\sigma^2 \mathrm{I}_n$, y (b) observaciones iid _en cada nivel de P_, con $\Sigma = diag(\sigma_1^2, ..., \sigma_n^2)$. Este último modelo equivale a realizar un ajuste de mínimos cuadrados pesados, con pesos $w_i = \tfrac{1}{\sigma_i}$
+
+```{r}
+df3 <-  df3 %>%
+  group_by(P) %>%
+  mutate(s = sd(R))
+
+lm3a <- lm(R ~ P, df3)
+lm3b <- lm(R ~ P, df3, weights = s^-2)
+
+b <- lm3b$coefficients[1] %>% round(2)
+m <- lm3b$coefficients[2] %>% round(2)
+
+map_df(
+  list(ordinario = lm3a, pesado = lm3b),
+  glance, .id = 'modelo') %>%
+  dplyr::select(modelo, adj.r.squared, p.value, sigma) %>%
+  knitr::kable()
+```
+
+Aunque ambos modelos son buenos, el p-valor para la regresión global del segundo modelo es más de 3 órdenes de magnitud más pequeño. La evidencia parece justificar el uso de una regresión pesada. El modelo final quedará
+
+$$
+R = `r b` + `r m` atm^{-1} \times P 
+$$
+
+NOTA: Graficar ambas rectas sobre los datos, ver que la diferencia es mínima.
+
+# Problema 4
+
+La siguiente tabla da, para 12 huevos de gallina, la longitud L (o sea, el mayor diámetro), la mayor sección circular (el mayor diámetro perpendicular a L), ambas en pulgadas;  y el volumen V. Interesa predecir V en función de L y M. 
+
+Asumiendo que el huevo está compuesto por dos medios elipsoides, y la sección transversal es perfectamente circular, su volumen está dado por $V=\pi\times\left(\tfrac{M}{2}\right)^2\times L$:
+```{r}
+df4 <- read_csv("data/1-4.csv")
+df4 <- df4 %>%
+  mutate(V_ = pi * (M/2)^2 * L)
+
+df4 %>%
+  ggplot(aes(V, V_)) + geom_point()
+```
 
