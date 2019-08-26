@@ -195,13 +195,54 @@ NOTA: Graficar ambas rectas sobre los datos, ver que la diferencia es mínima.
 
 La siguiente tabla da, para 12 huevos de gallina, la longitud L (o sea, el mayor diámetro), la mayor sección circular (el mayor diámetro perpendicular a L), ambas en pulgadas;  y el volumen V. Interesa predecir V en función de L y M. 
 
-Asumiendo que el huevo está compuesto por dos medios elipsoides, y la sección transversal es perfectamente circular, su volumen está dado por $V=\pi\times\left(\tfrac{M}{2}\right)^2\times L$:
+Preston (1973) ([link](https://sora.unm.edu/sites/default/files/journals/auk/v091n01/p0132-p0138.pdf)) hace un tratamiento bastante exhaustivo de cómo calcular el volumen de un huevo, que a continuación resumimos.
+
+Supongamos que el mayor diámetro de un huevo es $M$, y su largo es $L=a+b$, donde $a,\:b$ son las dos partes en que se divide el largo a la altura del máximo diámetro. El volumen de todo huevo está acotado superiormente por un ciindro perfecto de diámetro $M$, y por debajo por un bicono de máximo diámetro $M$ y alturas $a,\:b$. Si el huevo fuese cilíndrico, su volumen será $\tfrac{\pi}{4}M^2L$, y si fuese bicónico, $\tfrac{\pi}{12}M^2L$. En un escenario más realista e intermedio, en que el huevo está formado por dos medios elipsoides, su volumen es $\tfrac{\pi}{6}M^2L$. Nótese que en ningún caso la asimetría (_id est_, cuán lejos de $L/2$ están $a$ y $b$) hace diferencia alguna, pero sí es clave saber la forma dominante (bicono, elipsoide, cilindro). Los huevos de [colibrí](http://www.fotonatura.org/galerias/fotos/295043/) son más bien romos, casi cilíndricos, mientras que los de [zampullín](https://en.wikipedia.org/wiki/Great_crested_grebe#/media/File:Podiceps_cristatus_MWNH_0106.JPG) son casi bicónicos. En el siguiente gráfico, exhibimos los posibles volúmenes de cada huevo según la suposición de forma:
+
 ```{r}
 df4 <- read_csv("data/1-4.csv")
-df4 <- df4 %>%
-  mutate(V_ = pi * (M/2)^2 * L)
+volumenes <- df4 %>%
+  arrange(V) %>%
+  mutate(
+    real = V,
+    id = seq_along(V),
+    bicono = pi/12 * M^2 * L,
+    elipsoide = pi/6 * M^2 * L,
+    cilindro = pi/4 * M^2 * L) %>%
+  dplyr::select(id, real, bicono, elipsoide, cilindro) %>%
+  gather(forma, volumen, -id)
 
-df4 %>%
-  ggplot(aes(V, V_)) + geom_point()
+volumenes %>%
+  ggplot(aes(id, volumen, color = forma)) +
+  geom_point()
 ```
+
+El formato más razonable parece ser un cilindro, así que si el volumen del huevo de gallina está dado por ĺa fórmula $V=kM^2L$, $k\approx\pi/4$. Sin embargo, una simple regresión lineal sobre $M$ y $L$ que incluya un término cuadrático sobre $M$ ya tiene un error cuadrático medio mucho menor que nuestro modelo de huevo cilíndrico:
+```{r}
+lm4a <- lm(V ~ poly(M, 2) + L, df4)
+df4a <- augment(lm4a, data = df4)
+df4a %>%
+  mutate(cilindro = pi/4 * M^2 * L) %>%
+  summarise(
+    "ecm_lm" = mean(.resid^2),
+    ecm_cil = mean((V - cilindro)^2)) %>%
+  knitr::kable(digits = 4)
+```
+Una forma directa de mejorar el modelo, es usar una regresión lineal _sin ordenada_, sobre una covariable "sintética", $V = k \times (M^2\cdot L)$ y estimar empíricamente $k$.
+```{r}
+df4 <- df4 %>%
+  mutate(M2L = M^2*L)
+lm4b <- lm(V ~ M2L + 0, df4)
+k <- lm4b$coefficients[1] %>% round(3)
+ecm <- function(lm_call) { mean(lm_call$residuals^2) }
+map_df(
+  list(polinomico = lm4a, fisico = lm4b),
+  glance, .id = 'modelo') %>%
+  dplyr::select(modelo, adj.r.squared, p.value) %>%
+  knitr::kable(digits = 4)
+```
+
+¡Y cómo mejora! Evidentemente, con un $R^2_{adj}$ tan cercano a 1, algo debemos haber hecho bien. Es interesante notar que si comparásemos los dos modelos según su error cuadrático medio, ,el "polinómico" ingenuo da `r ecm(lm4a)` y el "físico" basado en una teoría real sobre la forma de los huevos de aves, da `r ecm(lm4b)`. Las predicciones del modelo polinómico tienen menor error cuadrático medio, pero el modelo físico es tanto más parsimonioso (ajusta 1 sólo parámetro en lugar de 4), que termina siendo ampliamente preferible. Así, concluimos que el mejor modelo para predecir $V$ es $V = `r k`\times M^2 \times L$.
+
+
 
