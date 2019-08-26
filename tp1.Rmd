@@ -11,7 +11,10 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Setup
 ```{r, message=F}
-library(tidyverse)
+library(fitdistrplus) # ajuste exploratorio de distribuciones
+library(tidyverse) # manipulación de datos en general
+library(broom) # limpieza y estructuracion de resultados de regresiones
+library(RobStatTM) # regresiones robustas
 ```
 
 # Problema 1
@@ -71,7 +74,6 @@ df1 %>%
   ggplot(aes(duracion)) +
   geom_density()
 
-library(fitdistrplus)
 descdist(df1$duracion, boot = 1000)
 ```
 
@@ -99,7 +101,6 @@ df2 %>%
 
 Se observa una relación casi lineal ($PE=b + m\times PA$), salvo por una tozuda observación cerca de (0.9, 95.0). Intentemos una sencilla regresión lineal en la PA, y grafiquemos los residuos en función de la misma.
 ```{r}
-library(broom)
 lm2 <- lm(PE ~ PA, df2)
 b <- round(lm2$coefficients[1], 2)
 m <- round(lm2$coefficients[2], 2)
@@ -136,7 +137,6 @@ Vemos que en general, la predicción del punto de ebullición está errada por m
 Se me ocurren dos caminos para mejorar este modelo. Uno, es realizar un ajuste robusto. Lo intentamos (con `RobStatTM::lmrobdetMM`), pero la situación no mejora demasiado. Una estrategia más sabia, sería plantear un modelo matemático con una descripción realista del fenómeno. Leyendo por la [internet](http://physicstasks.eu/1702/boiling-point-of-water-at-high-pressure) veo que la relación entre PA y PE es más bien exponencial, así que podríamos plantear un modelo tansformado acorde. Sin embargo, para el rango de PA considerado, pareciera má que razonable que la relación es lineal, y la santa observación #12 es más bien una mala medición de laboratorio.
 
 ```{r}
-library(RobStatTM)
 cont <- lmrobdet.control(
   bb = 0.5, efficiency = 0.85, family = "bisquare")
 lm2rob <- lmrobdetMM(PE ~ PA, data=df2, control=cont)
@@ -150,9 +150,12 @@ df2 %>%
 
 Se investiga el efecto de la presión aplicada durante la manufactura del papel, en el “factor de ruptura” (la fuerza necesaria para desgarrarlo). Bajo cada valor de la presión P, se manufacturó  un lote de papel; de cada lote se eligieron 4 hojas, a cada una de las cuales se midió el factor de ruptura R. Se desea predecir R en función de P.
 
-Aprovechando que tenemos mediciones repetidas para cada uno de los 5 valores de P, comparamos la raíz cuadrada del estimador global de la varianza $s_0 = `r round(sd(df3$R), 2)`$, con la de los estimadores de la varianza para cada valor de P:
 ```{r}
 df3 <- read_csv("data/1-3.csv")
+```
+
+Aprovechando que tenemos mediciones repetidas para cada uno de los 5 valores de P, comparamos la raíz cuadrada del estimador global de la varianza $s_0 = `r round(sd(df3$R), 2)`$, con la de los estimadores de la varianza para cada valor de P:
+```{r}
 df3 %>%
   group_by(P) %>%
   summarise(s = sd(R)) %>%
@@ -163,7 +166,7 @@ Aún con pocos datos, se intuye que la varianza en R no es la misma para todo P.
 
 Asumiendo que las mediciones de cada par $(P, R)$ son independientes entre sí, la matriz de covarianzas será diagonal, y en vez de utilizar $\Sigma = \sigma^2 \mathrm{I}_n$, podemos considerar una matriz $\Sigma = diag(\sigma_1^2, ..., \sigma_n^2)$, y estimar las varianzas de cada observación, con el estimador insesgado de la varianza para cada nivel de presión antes calculado.
 
-A continuación ajustamos ambos modelos, considerando (a) observaciones iid en general, y matriz de covarianza $\sigma^2 \mathrm{I}_n$, y (b) observaciones iid _en cada nivel de P_, con $\Sigma = diag(\sigma_1^2, ..., \sigma_n^2)$. Este último modelo equivale a realizar un ajuste de mínimos cuadrados pesados, con pesos $w_i = \tfrac{1}{\sigma_i}$
+A continuación ajustamos ambos modelos, considerando (a) observaciones iid en general, y matriz de covarianza $\sigma^2 \mathrm{I}_n$, y (b) observaciones iid _en cada nivel de P_, con $\Sigma = diag(\sigma_1^2, ..., \sigma_n^2)$. Este último modelo equivale a realizar un ajuste de mínimos cuadrados pesados, con pesos $w_i = \sigma_i^{-2}$
 
 ```{r}
 df3 <-  df3 %>%
@@ -179,7 +182,7 @@ m <- lm3b$coefficients[2] %>% round(2)
 map_df(
   list(ordinario = lm3a, pesado = lm3b),
   glance, .id = 'modelo') %>%
-  dplyr::select(modelo, adj.r.squared, p.value, sigma) %>%
+  select(modelo, adj.r.squared, p.value) %>%
   knitr::kable()
 ```
 
@@ -209,7 +212,7 @@ volumenes <- df4 %>%
     bicono = pi/12 * M^2 * L,
     elipsoide = pi/6 * M^2 * L,
     cilindro = pi/4 * M^2 * L) %>%
-  dplyr::select(id, real, bicono, elipsoide, cilindro) %>%
+  select(id, real, bicono, elipsoide, cilindro) %>%
   gather(forma, volumen, -id)
 
 volumenes %>%
@@ -228,6 +231,7 @@ df4a %>%
     ecm_cil = mean((V - cilindro)^2)) %>%
   knitr::kable(digits = 4)
 ```
+
 Una forma directa de mejorar el modelo, es usar una regresión lineal _sin ordenada_, sobre una covariable "sintética", $V = k \times (M^2\cdot L)$ y estimar empíricamente $k$.
 ```{r}
 df4 <- df4 %>%
@@ -238,11 +242,11 @@ ecm <- function(lm_call) { mean(lm_call$residuals^2) }
 map_df(
   list(polinomico = lm4a, fisico = lm4b),
   glance, .id = 'modelo') %>%
-  dplyr::select(modelo, adj.r.squared, p.value) %>%
+  select(modelo, adj.r.squared, p.value) %>%
   knitr::kable(digits = 4)
 ```
 
-¡Y cómo mejora! Evidentemente, con un $R^2_{adj}$ tan cercano a 1, algo debemos haber hecho bien. Es interesante notar que si comparásemos los dos modelos según su error cuadrático medio, ,el "polinómico" ingenuo da `r ecm(lm4a)` y el "físico" basado en una teoría real sobre la forma de los huevos de aves, da `r ecm(lm4b)`. Las predicciones del modelo polinómico tienen menor error cuadrático medio, pero el modelo físico es tanto más parsimonioso (ajusta 1 sólo parámetro en lugar de 4), que termina siendo ampliamente preferible. Así, concluimos que el mejor modelo para predecir $V$ es $V = `r k`\times M^2 \times L$.
+¡Y cómo mejora! Evidentemente, con un $R^2_{adj}$ tan cercano a 1, algo debemos haber hecho bien. Es interesante notar que si comparásemos los dos modelos según su error cuadrático medio, ,el "polinómico" ingenuo da `r ecm(lm4a) %>% round(4)` y el "físico" basado en una teoría real sobre la forma de los huevos de aves, da `r ecm(lm4b) %>% round(4)`. Las predicciones del modelo polinómico tienen menor error cuadrático medio, pero el modelo físico es tanto más parsimonioso (ajusta 1 sólo parámetro en lugar de 4), que termina siendo ampliamente preferible. Así, concluimos que el mejor modelo para predecir $V$ es $V = `r k`\times M^2 \times L$.
 
 
 
