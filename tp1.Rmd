@@ -2,17 +2,23 @@
 title: "Taller de Consultoria - TP1"
 author: "Gonzalo Barrera Borla"
 date: "8/25/2019"
-output: pdf_document
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+urlcolor: blue
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE)
+options(tinytex.verbose = TRUE)
 ```
 
 # Setup
 ```{r, echo=TRUE, message=F}
 library(fitdistrplus) # ajuste exploratorio de distribuciones
-library(tidyverse) # manipulación de datos en general
+library(tidyverse) # manipulación de datos en general, graficos
+library(gridExtra) # presentacion de graficos contiguos
 library(broom) # limpieza y estructuracion de resultados de regresiones
 library(RobStatTM) # regresiones robustas
 ```
@@ -117,70 +123,156 @@ En conclusión, postulamos que las duraciones $X_i$ de los $i=1,\dots,n$ rodamie
 
 Se dan: el punto de ebullición del agua (PE) (en grados Fahrenheit) y la presión atmosférica (PA) (en pulgadas de mercurio), medidos a distintas alturas en los Alpes. Plantear un modelo que describa cómo varía PE en función de PA. ¿Con cuánta precisión se puede estimar PE en función de PA?. Comentar cualquier característica de los datos.
 
-Convertimos primero las unidades al sistema métrico, y las graficamos.
+Aparentemente confiables fuentes en la internet apuntan a que un modelo físico del punto de ebullición del agua con la presión atmosférica se puede derivar de la "relación de Clausius-Clapeyron" ([referencia](https://en.wikipedia.org/wiki/Clausius%E2%80%93Clapeyron_relation)). En particular, a bajas temperaturas (id est, a temperaturas por debajo del [punto crítico](https://en.wikipedia.org/wiki/Critical_point_(thermodynamics)), $647\:\text{K}$ para el agua) y asumiendo que la entalpía de vaporización $L$ del agua permanece constante), dados dos puntos $(P_1, T_1),\:(P_2,T_2)$en la curva de coexistencia entre agua y vapor, se cumple que:
+$$
+\ln \frac {P_2}{P_1} = -\frac {L}{R} \left ( \frac {1}{T_2} - \frac {1}{T_1} \right )
+$$
+
+donde $R$ es la constante de los gases ideales. Reorganizando un poco los términos obtenemos
+
+$$
+\begin{split}
+PE^{-1} &= \frac{R\cdot \ln P_0}{L} + \frac{1}{T_0} - \frac{R}{L} \ln PA \\
+PE^{-1} &= \:b + m\ln PA \text{, digamos}
+\end{split}
+$$
+Es decir que existe una relación lineal entre la inversa del punto de ebullición y el logaritmo natural de la presión atmosférica a la que fue medido, donde
+
+$$
+\begin{split}
+R &= 8,3145 \text{ J K}^{-1}\text{ mol}^{-1} \quad\quad &\text{es la constante de los gases ideales} \\
+P_0 &= 101.325 \text{ Pa}\quad\quad &\text{es la presión atmosférica estándar} \\
+T_0 &= 373,15 \text{ K} &\text{es el punto de ebullición del agua a } P_0 \\
+L &= 40.608 \text{ J mol}^{-1} &\text{es la entalpía de vaporización del agua}
+\end{split}
+$$
+Y los coeficientes correspondientes deberían ser
 
 ```{r}
+R <- 8.3145 # J/(K*mol), constante de los gases ideales
+L <- 2256000 # kJ/kg, entalpia de vaporizacion del agua
+mH2O <- 0.018 # kg/mol, masa del agua
+Lmol <- L * mH2O
+P0 <- 101325 # Pa, presión atmosférica de referencia
+T0 <- 373.15 # K, temperatura de ebulicion del agua a P0
+b <- R/(Lmol*log(P0))+1/T0
+m <- -R/(Lmol)
+```
+
+$$
+\begin{split}
+b &= \frac{R\cdot \ln P_0}{L} + \frac{1}{T_0} &\approx 2,6976 \times10^{-3} \text{ K}^{-1} \\
+m &= \frac{-R}{L}  &\approx -2,0475 \times10^{-4} \text{ K}^{-1}
+\end{split}
+$$
+
+Este modelo provee una forma determinística de estimar PE en función de PA, para lo cual ni siquiera hace falta realizar regresión alguna sobre los datos. Al estimar por regresión lineal los coeficientes $b,\:m$, lo que estaremos haciendo no es derivar de cero una relación entre $PE,\:PA$, sino:
+- (a) determinar si los datos recolectados proveen evidencia para el modelo propuesto, o menos arrogantemente, si asumimos correcto el modelo termodinámico,
+- (b) evaluar si la recolección de los datos fue fidedigna.
+
+Al graficar los datos en forma "cruda", se observa que:
+- los datos "crudos" parecen seguir una tendencia lineal, y
+- la doceava observación es la única evidentemente por fuera de dicha tendencia.
+
+A continuación entonces, compararemos 4 modelos, surgidos a partir de ajustar (a) un modelo lineal "ingenuo" y (b) el modelo "físico" antedicho, usando (i) todas las observaciones y (ii) todas salvo la #12. Para ello, transformamos las unidadas al estándar internacional (grados Kelvin para temperaturas y Pascales para la presión):
+
+```{r, echo=T}
+inHg_a_Pa <- function(x) {x*3386.39}
+fahrenheit_a_kelvin <- function(x) { (x - 32)*5/9 + 273.15 }
+```
+
+```{r, message=F}
 df2 <- read_csv("data/1-2.csv")
-inHg_a_atm <- function(x) {x/29.921}
-fahrenheit_a_celsius <- function(x) { (x - 32)*5/9 }
 
 df2 <- df2 %>%
   mutate(
     id = seq_along(PA),
-    PE = map_dbl(PE, fahrenheit_a_celsius),
-    PA = map_dbl(PA, inHg_a_atm)) 
+    PE = fahrenheit_a_kelvin(PE),
+    PA = inHg_a_Pa(PA),
+    invPE = 1/PE,
+    lnPA = log(PA)) 
 
-df2 %>%
+g1 <- df2 %>%
   ggplot(aes(PA, PE)) +
   geom_point()
+g2 <- df2 %>%
+  ggplot(aes(lnPA, invPE)) +
+  geom_point()
+grid.arrange(g1, g2, ncol=2)
 ```
 
 Se observa una relación casi lineal ($PE=b + m\times PA$), salvo por una tozuda observación cerca de (0.9, 95.0). Intentemos una sencilla regresión lineal en la PA, y grafiquemos los residuos en función de la misma.
 ```{r}
-lm2 <- lm(PE ~ PA, df2)
-b <- round(lm2$coefficients[1], 2)
-m <- round(lm2$coefficients[2], 2)
+modelos <- list(
+  lineal = PE ~ PA,
+  fisico = invPE ~ lnPA)
+datos <- list(
+  si = df2,
+  no = df2[-12,])
+resumen <- crossing(modelos, datos) %>%
+  mutate(
+    nombre_modelo = c(rep("lineal", 2), rep("fisico", 2)),
+    con12 = rep(c("si", "no"), 2),
+    llamada_lm = map2(modelos, datos, lm),
+    resumen = map(llamada_lm, broom::glance),
+    b = map(llamada_lm, "coefficients") %>% map_dbl(1),
+    m = map(llamada_lm, "coefficients") %>% map_dbl(2),
+    R2_ajustado = map_dbl(resumen, "adj.r.squared"),
+    p_valor = map_dbl(resumen, "p.value"))
 
-summary(lm2)
+resumen %>%
+  select(nombre_modelo, con12, R2_ajustado, p_valor)
 ```
-Tanto la ordenada al origen como la pendiente parecen ser sin duda significativas, y nuestro modelo ajustado queda:
 
-$$
-PE = `r b`^\circ C + `r m` \frac{^\circ C}{atm} \times PA 
-$$
-Vale aclarar que este modelo sólo tiene sentido sobre el soporte de los datos, es decir, cuando la presión atmosférica está en el rango $(`r range(df2$PA) %>% round(2)`)$. Si no, podríamos deducir incorrectamente que la temperatura de ebullición del agua en el vacío (0 atm.) es de `r b` grados, cuando en realidad es de ~-68 grados celsius ([referencia](https://www.engineeringtoolbox.com/water-evacuation-pressure-temperature-d_1686.html)).
+Tanto $R^2_{adj}$ como el p-valor del test de significación global de la regresión son medidas adimensionales de la calidad de ajuste de un modelo, así que es razonable compararlas aún cuando los modelos ajustados tienen distintas unidades. Se observa que 
+- tanto el modelo lineal como el físico proveen una muy buena estimación de los valores de PE en función de PA,
+- el modelo físico ajusta mejor que el lineal, se incluya o no la observación 12, y
+- el ajuste del modelo físico mejora espectacularmente al quitarla, mientras que el modelo lineal mejora marginalmente.
 
-Observamos los "residuos" ($r_i = y_i - \hat{y}_i$) versus la presión atmosférica para ver con cuánta precisión se puede estimar el punto de ebullición, y examinarlos por si existe alguna estructura.
+Así considerado, podríamos decir que al menos _sobre el soporte de los datos_ tanto el modelo lineal como el físico proveen una aproximaci'on decente del fenómeno, y si no se requiere demasiada exactitud o se vive en 1940 y el poder de cómputo escasea, se puede usar el modelo lineal. Graficando los residuos, sin embargo, se observa claramente que los correspondientes al modelo lineal tienen una clara estructura, se incluya la observación 12 o no. Por su parte, en el modelo físico, salvo por el _outlier_ #12, los residuos no presentan estructura alguna. En ambos casos, eliminar el _outlier_ "centra" mejor los residuos alrededor del 0, sin eliminar la tendencia de los mismos.
 ```{r}
-df2 <- augment(lm2, data = df2)
+predicciones <- resumen %>%
+  mutate(
+    ajuste = map(llamada_lm, augment),
+    PA = map(datos, "PA"),
+    PE = map(datos, "PE"),
+    PEhat = map(ajuste, ".fitted")) %>%
+  select(nombre_modelo, con12, PA, PE, PEhat) %>%
+  unnest() %>%
+  mutate(
+    PEhat = ifelse(nombre_modelo=="fisico", 1/PEhat, PEhat),
+    resid = PE - PEhat)
 
-df2 %>%
-  ggplot(aes(PA, PE)) +
-  geom_point() +
-  geom_abline(intercept = b, slope = m, color = 'red')
-
-df2 %>%
-  ggplot(aes(PA, .resid, label=id)) +
-  geom_point() + 
-  geom_hline(yintercept = 0, color = 'gray') +
-  geom_text(
-    data = filter(df2, abs(.resid) > 0.5),
-    nudge_x = 0.01)
+predicciones %>%
+  ggplot(aes(PA, resid)) +
+    geom_point() +
+    facet_grid(con12 ~ nombre_modelo, scales = "free")
 ```
 
-Vemos que en general, la predicción del punto de ebullición está errada por menos de $0.25^\circ C$, a excepción de la observación 12, donde el error es de `r filter(df2, id==12) %>% pull(".resid") %>% round(2)` grados.
-
-Se me ocurren dos caminos para mejorar este modelo. Uno, es realizar un ajuste robusto. Lo intentamos (con `RobStatTM::lmrobdetMM`), pero la situación no mejora demasiado. Una estrategia más sabia, sería plantear un modelo matemático con una descripción realista del fenómeno. Leyendo por la [internet](http://physicstasks.eu/1702/boiling-point-of-water-at-high-pressure) veo que la relación entre PA y PE es más bien exponencial, así que podríamos plantear un modelo tansformado acorde. Sin embargo, para el rango de PA considerado, pareciera má que razonable que la relación es lineal, y la santa observación #12 es más bien una mala medición de laboratorio.
-
+Al extrapolar los modelos por fuera del soporte de los datos, es evidente por qué la aproximación lineal fue tan buena: ¡los datos fueron tomados exactamente en el rango en que ambos modelos dan predicciones similares!
 ```{r}
-cont <- lmrobdet.control(
-  bb = 0.5, efficiency = 0.85, family = "bisquare")
-lm2rob <- lmrobdetMM(PE ~ PA, data=df2, control=cont)
-df2 %>%
-  mutate(rob_resid = lm2rob$residuals) %>%
-  ggplot(aes(PA, rob_resid)) +
-  geom_point()
+blin <- filter(resumen, con12=="no", nombre_modelo=="lineal")$b
+mlin <- filter(resumen, con12=="no", nombre_modelo=="lineal")$m
+bfis <- filter(resumen, con12=="no", nombre_modelo=="fisico")$b
+mfis <- filter(resumen, con12=="no", nombre_modelo=="fisico")$m
+tibble(
+  PA = seq(P0/3, 1.5*P0, 100),
+  lineal = blin + mlin * PA,
+  fisico = 1/(bfis + mfis * log(PA))) %>%
+  gather(modelo, PE, -PA) %>%
+  ggplot(aes(PA, PE, color = modelo)) +
+  geom_line() +
+  geom_point(data = df2, inherit.aes = F, mapping = aes(PA, PE), shape = "x", size = 2)
 ```
+
+Por último, comparemos las constantes calculadas teóricamente con las estimaciones empíricas:
+$$
+\begin{split}
+b &\approx 2,6976 \times10^{-3} \text{ K}^{-1},\quad m&\approx 2,0475 \times10^{-4} \text{ K}^{-1} \\
+\hat{b} &\approx `r bfis` \times10^{-3} \text{ K}^{-1},\quad \hat{m}&\approx `r mfis` \times10^{-4} \text{ K}^{-1}
+\end{split}
+$$
+
 
 # Problema 3
 
