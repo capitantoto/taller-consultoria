@@ -4,37 +4,32 @@ author: "Gonzalo Barrera Borla"
 date: "8/25/2019"
 output:
   pdf_document: default
-  html_document:
-    df_print: paged
 urlcolor: blue
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
 options(tinytex.verbose = TRUE)
 ```
 
 # Setup
-```{r, echo=TRUE, message=F}
+```{r, echo=TRUE}
 library(fitdistrplus) # ajuste exploratorio de distribuciones
 library(tidyverse) # manipulación de datos en general, graficos
-library(gridExtra) # presentacion de graficos contiguos
 library(broom) # limpieza y estructuracion de resultados de regresiones
-library(RobStatTM) # regresiones robustas
 ```
 
 # Problema 1
 
-Se dan las duraciones (medidas en ciclos hasta la ruptura) de una muestra de rodamientos (“rulemanes”). Describir las características principales de la muestra (posición, dispersión, asimetría), y buscar una  distribución adecuada.
+> Se dan las duraciones (medidas en ciclos hasta la ruptura) de una muestra de rodamientos (“rulemanes”). Describir las características principales de la muestra (posición, dispersión, asimetría), y buscar una  distribución adecuada.
 
 Los funcionales de locación más habituales son la media $\mu$ y la mediana $\eta$, digamos. Reportamos sus estimadores puntuales muestrales, $\hat{\mu}=\bar{x}=n^{-1}\sum_i x_i$ y $\hat{\eta}=x^{(\frac{n}{2})}$ (donde $x^{(i)}$ denota el i-ésimo elemento de la muestra ordenada). 	Para la dispersión, es razonable usar el la raíz cuadrada del estimador puntual insesgado de la varianza, $s^2=(n-1)^{-1}\sum_i(x_i-\bar{x})^2$. Para la asimetría $\gamma$, construimos el estimador $b$ reemplazando en la definición de $\gamma$ a cada momento por su estimador insesgado:
 
+
 $$
-\begin{split}
-\gamma&=E\left[\left(\frac{X-\mu}{\sigma}\right)^3\right] \\
-b=\hat{\gamma}&=\frac{1}{n}\sum_{i=1}^{n}\left(\frac{x_i-\bar{x}}{s}\right)^3
-\end{split}
+\gamma=E\left[\left(\frac{X-\mu}{\sigma}\right)^3\right] \quad \Rightarrow \quad \hat{\gamma}=\frac{1}{n}\sum_{i=1}^{n}\left(\frac{x_i-\bar{x}}{s}\right)^3
 $$
+
 
 ```{r}
 asimetria <- function(x) {
@@ -45,7 +40,7 @@ asimetria <- function(x) {
 }
 ```
 
-```{r, message=F}
+```{r}
 df1 <- read_csv("data/1-1.csv")
 df1 %>%
   summarise(
@@ -121,31 +116,31 @@ En conclusión, postulamos que las duraciones $X_i$ de los $i=1,\dots,n$ rodamie
 
 # Problema 2
 
-Se dan: el punto de ebullición del agua (PE) (en grados Fahrenheit) y la presión atmosférica (PA) (en pulgadas de mercurio), medidos a distintas alturas en los Alpes. Plantear un modelo que describa cómo varía PE en función de PA. ¿Con cuánta precisión se puede estimar PE en función de PA?. Comentar cualquier característica de los datos.
+> Se dan: el punto de ebullición del agua (PE) (en grados Fahrenheit) y la presión atmosférica (PA) (en pulgadas de mercurio), medidos a distintas alturas en los Alpes. Plantear un modelo que describa cómo varía PE en función de PA. ¿Con cuánta precisión se puede estimar PE en función de PA?. Comentar cualquier característica de los datos.
 
-Aparentemente confiables fuentes en la internet apuntan a que un modelo físico del punto de ebullición del agua con la presión atmosférica se puede derivar de la "relación de Clausius-Clapeyron" ([referencia](https://en.wikipedia.org/wiki/Clausius%E2%80%93Clapeyron_relation)). En particular, a bajas temperaturas (id est, a temperaturas por debajo del [punto crítico](https://en.wikipedia.org/wiki/Critical_point_(thermodynamics)), $647\:\text{K}$ para el agua) y asumiendo que la entalpía de vaporización $L$ del agua permanece constante), dados dos puntos $(P_1, T_1),\:(P_2,T_2)$en la curva de coexistencia entre agua y vapor, se cumple que:
+Aparentemente confiables fuentes en la internet apuntan a que un modelo físico del punto de ebullición del agua con la presión atmosférica se puede derivar de la "relación de Clausius-Clapeyron" ([referencia](https://en.wikipedia.org/wiki/Clausius%E2%80%93Clapeyron_relation)). En particular, a bajas temperaturas (id est, a temperaturas por debajo del [punto crítico](https://en.wikipedia.org/wiki/Critical_point_(thermodynamics)), $647\:\text{K}$ para el agua) y asumiendo que la entalpía de vaporización $L$ del agua permanece constante), dados dos puntos $(P_1, T_1),\:(P_2,T_2)$ en la curva de coexistencia entre agua y vapor, se cumple que:
 $$
 \ln \frac {P_2}{P_1} = -\frac {L}{R} \left ( \frac {1}{T_2} - \frac {1}{T_1} \right )
 $$
 
 donde $R$ es la constante de los gases ideales. Reorganizando un poco los términos obtenemos
 
-$$
-\begin{split}
+
+\begin{align*}
 PE^{-1} &= \frac{R\cdot \ln P_0}{L} + \frac{1}{T_0} - \frac{R}{L} \ln PA \\
 PE^{-1} &= \:b + m\ln PA \text{, digamos}
-\end{split}
-$$
+\end{align*}
+
 Es decir que existe una relación lineal entre la inversa del punto de ebullición y el logaritmo natural de la presión atmosférica a la que fue medido, donde
 
-$$
-\begin{split}
+
+\begin{align*}
 R &= 8,3145 \text{ J K}^{-1}\text{ mol}^{-1} \quad\quad &\text{es la constante de los gases ideales} \\
 P_0 &= 101.325 \text{ Pa}\quad\quad &\text{es la presión atmosférica estándar} \\
 T_0 &= 373,15 \text{ K} &\text{es el punto de ebullición del agua a } P_0 \\
 L &= 40.608 \text{ J mol}^{-1} &\text{es la entalpía de vaporización del agua}
-\end{split}
-$$
+\end{align*}
+
 Y los coeficientes correspondientes deberían ser
 
 ```{r}
@@ -155,22 +150,23 @@ mH2O <- 0.018 # kg/mol, masa del agua
 Lmol <- L * mH2O
 P0 <- 101325 # Pa, presión atmosférica de referencia
 T0 <- 373.15 # K, temperatura de ebulicion del agua a P0
-b <- R/(Lmol*log(P0))+1/T0
+b <- R*log(P0)/Lmol+1/T0
 m <- -R/(Lmol)
 ```
 
-$$
-\begin{split}
-b &= \frac{R\cdot \ln P_0}{L} + \frac{1}{T_0} &\approx 2,6976 \times10^{-3} \text{ K}^{-1} \\
-m &= \frac{-R}{L}  &\approx -2,0475 \times10^{-4} \text{ K}^{-1}
-\end{split}
-$$
+
+\begin{align*}
+b &= \frac{R\cdot \ln P_0}{L} + \frac{1}{T_0} &\approx `r signif(b, 4)` \text{ K}^{-1} \\
+m &= \frac{-R}{L}  &\approx `r signif(m, 4)` \text{ K}^{-1}
+\end{align*}
+
 
 Este modelo provee una forma determinística de estimar PE en función de PA, para lo cual ni siquiera hace falta realizar regresión alguna sobre los datos. Al estimar por regresión lineal los coeficientes $b,\:m$, lo que estaremos haciendo no es derivar de cero una relación entre $PE,\:PA$, sino:
 - (a) determinar si los datos recolectados proveen evidencia para el modelo propuesto, o menos arrogantemente, si asumimos correcto el modelo termodinámico,
 - (b) evaluar si la recolección de los datos fue fidedigna.
 
 Al graficar los datos en forma "cruda", se observa que:
+
 - los datos "crudos" parecen seguir una tendencia lineal, y
 - la doceava observación es la única evidentemente por fuera de dicha tendencia.
 
@@ -181,7 +177,7 @@ inHg_a_Pa <- function(x) {x*3386.39}
 fahrenheit_a_kelvin <- function(x) { (x - 32)*5/9 + 273.15 }
 ```
 
-```{r, message=F}
+```{r}
 df2 <- read_csv("data/1-2.csv")
 
 df2 <- df2 %>%
@@ -191,45 +187,40 @@ df2 <- df2 %>%
     PA = inHg_a_Pa(PA),
     invPE = 1/PE,
     lnPA = log(PA)) 
-
-g1 <- df2 %>%
-  ggplot(aes(PA, PE)) +
-  geom_point()
-g2 <- df2 %>%
-  ggplot(aes(lnPA, invPE)) +
-  geom_point()
-grid.arrange(g1, g2, ncol=2)
 ```
 
-Se observa una relación casi lineal ($PE=b + m\times PA$), salvo por una tozuda observación cerca de (0.9, 95.0). Intentemos una sencilla regresión lineal en la PA, y grafiquemos los residuos en función de la misma.
+
 ```{r}
 modelos <- list(
   lineal = PE ~ PA,
   fisico = invPE ~ lnPA)
 datos <- list(
-  si = df2,
-  no = df2[-12,])
+  "con outlier" = df2,
+  "sin outlier" = df2[-12,])
 resumen <- crossing(modelos, datos) %>%
   mutate(
     nombre_modelo = c(rep("lineal", 2), rep("fisico", 2)),
-    con12 = rep(c("si", "no"), 2),
+    outliers = rep(c("con outlier", "sin outlier"), 2),
     llamada_lm = map2(modelos, datos, lm),
     resumen = map(llamada_lm, broom::glance),
     b = map(llamada_lm, "coefficients") %>% map_dbl(1),
     m = map(llamada_lm, "coefficients") %>% map_dbl(2),
-    R2_ajustado = map_dbl(resumen, "adj.r.squared"),
-    p_valor = map_dbl(resumen, "p.value"))
+    R2_ajustado = map_dbl(resumen, "adj.r.squared") %>% signif(4),
+    p_valor = map_dbl(resumen, "p.value") %>% signif(4))
 
 resumen %>%
-  select(nombre_modelo, con12, R2_ajustado, p_valor)
+  select(nombre_modelo, outliers, R2_ajustado, p_valor) %>%
+  knitr::kable(digits=30)
 ```
 
 Tanto $R^2_{adj}$ como el p-valor del test de significación global de la regresión son medidas adimensionales de la calidad de ajuste de un modelo, así que es razonable compararlas aún cuando los modelos ajustados tienen distintas unidades. Se observa que 
+
 - tanto el modelo lineal como el físico proveen una muy buena estimación de los valores de PE en función de PA,
 - el modelo físico ajusta mejor que el lineal, se incluya o no la observación 12, y
 - el ajuste del modelo físico mejora espectacularmente al quitarla, mientras que el modelo lineal mejora marginalmente.
 
 Así considerado, podríamos decir que al menos _sobre el soporte de los datos_ tanto el modelo lineal como el físico proveen una aproximaci'on decente del fenómeno, y si no se requiere demasiada exactitud o se vive en 1940 y el poder de cómputo escasea, se puede usar el modelo lineal. Graficando los residuos, sin embargo, se observa claramente que los correspondientes al modelo lineal tienen una clara estructura, se incluya la observación 12 o no. Por su parte, en el modelo físico, salvo por el _outlier_ #12, los residuos no presentan estructura alguna. En ambos casos, eliminar el _outlier_ "centra" mejor los residuos alrededor del 0, sin eliminar la tendencia de los mismos.
+
 ```{r}
 predicciones <- resumen %>%
   mutate(
@@ -237,7 +228,7 @@ predicciones <- resumen %>%
     PA = map(datos, "PA"),
     PE = map(datos, "PE"),
     PEhat = map(ajuste, ".fitted")) %>%
-  select(nombre_modelo, con12, PA, PE, PEhat) %>%
+  select(nombre_modelo, outliers, PA, PE, PEhat) %>%
   unnest() %>%
   mutate(
     PEhat = ifelse(nombre_modelo=="fisico", 1/PEhat, PEhat),
@@ -246,15 +237,16 @@ predicciones <- resumen %>%
 predicciones %>%
   ggplot(aes(PA, resid)) +
     geom_point() +
-    facet_grid(con12 ~ nombre_modelo, scales = "free")
+    facet_grid(outliers ~ nombre_modelo, scales = "free")
 ```
 
 Al extrapolar los modelos por fuera del soporte de los datos, es evidente por qué la aproximación lineal fue tan buena: ¡los datos fueron tomados exactamente en el rango en que ambos modelos dan predicciones similares!
+
 ```{r}
-blin <- filter(resumen, con12=="no", nombre_modelo=="lineal")$b
-mlin <- filter(resumen, con12=="no", nombre_modelo=="lineal")$m
-bfis <- filter(resumen, con12=="no", nombre_modelo=="fisico")$b
-mfis <- filter(resumen, con12=="no", nombre_modelo=="fisico")$m
+blin <- filter(resumen, outliers=="sin outlier", nombre_modelo=="lineal")$b
+mlin <- filter(resumen, outliers=="sin outlier", nombre_modelo=="lineal")$m
+bfis <- filter(resumen, outliers=="sin outlier", nombre_modelo=="fisico")$b
+mfis <- filter(resumen, outliers=="sin outlier", nombre_modelo=="fisico")$m
 tibble(
   PA = seq(P0/3, 1.5*P0, 100),
   lineal = blin + mlin * PA,
@@ -266,23 +258,29 @@ tibble(
 ```
 
 Por último, comparemos las constantes calculadas teóricamente con las estimaciones empíricas:
-$$
-\begin{split}
-b &\approx 2,6976 \times10^{-3} \text{ K}^{-1},\quad m&\approx 2,0475 \times10^{-4} \text{ K}^{-1} \\
-\hat{b} &\approx `r bfis` \times10^{-3} \text{ K}^{-1},\quad \hat{m}&\approx `r mfis` \times10^{-4} \text{ K}^{-1}
-\end{split}
-$$
 
+\begin{align*}
+b &\approx `r signif(b, 4)` \text{ K}^{-1},\quad &m \approx `r signif(m, 4)` \text{ K}^{-1} \\
+\hat{b} &\approx `r signif(bfis, 4)` \text{ K}^{-1},\quad &\hat{m} \approx `r signif(mfis, 4)` \text{ K}^{-1}
+\end{align*}
+
+es decir que el ajuste fue casi perfecto. El modelo final, expresado en grados Kelvin y Pascales, será 
+
+$$
+PE = ( `r signif(b, 4)` `r signif(m, 4)` \ln PA)^{-1}
+$$
 
 # Problema 3
 
-Se investiga el efecto de la presión aplicada durante la manufactura del papel, en el “factor de ruptura” (la fuerza necesaria para desgarrarlo). Bajo cada valor de la presión P, se manufacturó  un lote de papel; de cada lote se eligieron 4 hojas, a cada una de las cuales se midió el factor de ruptura R. Se desea predecir R en función de P.
+> Se investiga el efecto de la presión aplicada durante la manufactura del papel, en el “factor de ruptura” (la fuerza necesaria para desgarrarlo). Bajo cada valor de la presión P, se manufacturó  un lote de papel; de cada lote se eligieron 4 hojas, a cada una de las cuales se midió el factor de ruptura R. Se desea predecir R en función de P.
 
 ```{r}
 df3 <- read_csv("data/1-3.csv")
 ```
 
+
 Aprovechando que tenemos mediciones repetidas para cada uno de los 5 valores de P, comparamos la raíz cuadrada del estimador global de la varianza $s_0 = `r round(sd(df3$R), 2)`$, con la de los estimadores de la varianza para cada valor de P:
+
 ```{r}
 df3 %>%
   group_by(P) %>%
@@ -320,11 +318,10 @@ $$
 R = `r b` + `r m` atm^{-1} \times P 
 $$
 
-NOTA: Graficar ambas rectas sobre los datos, ver que la diferencia es mínima.
 
 # Problema 4
 
-La siguiente tabla da, para 12 huevos de gallina, la longitud L (o sea, el mayor diámetro), la mayor sección circular (el mayor diámetro perpendicular a L), ambas en pulgadas;  y el volumen V. Interesa predecir V en función de L y M. 
+> La siguiente tabla da, para 12 huevos de gallina, la longitud L (o sea, el mayor diámetro), la mayor sección circular (el mayor diámetro perpendicular a L), ambas en pulgadas;  y el volumen V. Interesa predecir V en función de L y M. 
 
 Preston (1973) ([link](https://sora.unm.edu/sites/default/files/journals/auk/v091n01/p0132-p0138.pdf)) hace un tratamiento bastante exhaustivo de cómo calcular el volumen de un huevo, que a continuación resumimos.
 
