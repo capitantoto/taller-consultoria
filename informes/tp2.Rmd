@@ -1,0 +1,186 @@
+---
+title: "Taller de Consultoria - TP2 - Selección de Modelos"
+author: "Gonzalo Barrera Borla"
+date: "8/25/2019"
+output:
+  pdf_document: default
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
+options(tinytex.verbose = TRUE)
+library(tidyverse)
+library(broom)
+library(GGally)
+```
+
+# Introducción
+En los tres ejercicios de esta práctica se busca 
+- (a) elegir un modelo $M$ para predecir la variable $y$ a partir de una muestra aleatoria $X$ de un  conjunto de covariables $x_1, x_2, y
+- (b) dar una medida del error de predicción asociado a $\hat{y}=\delta_M(X)$.
+
+A diferencia del TP1, los tres problemas que ahora nos competen ilustran situaciones tan específicas que comprender la relación entre las covariables sin la ayuda de un técnico en el campo es una tarea vana. La _opacidad_ del conjunto de covariables (que no es una caja negra, pero tampoco es transparente) nos obliga a intentar ajustar _varios_ modelos en cada situación, y elegir el "mejor" entre ellos, según algún criterio de bondad a definir. Un poco más formalmente,
+
+Sean $M_j: \mathbb{R}^{n \times p} \rightarrow {\mathbb{R}}$ la transformación de $X$ en $y$ que representa al j-ésimo modelo, $\omega_j$.  Definamos además la _predicción_ $\hat{y}^j=M_j(x_1, \dots,x_n)$, el _error de predicción_ $ep_j=y-\hat{y}^j$ correspondiente a una nueva observación $(y_0, \mathrm{x}_0)$ y la complejidad $c_j$ del modelo $\omega_j$. Diremos que $\omega_k$ es _más preciso_ que $\omega_l$ sí y sólo si $ep_k < ep_l$, y  que es _más simple_ sii $c_k < c_l$.
+
+Si además hacemos el tradicional supuesto de que las observaciones son realizaciones independientes de un mismo proceso generador de datos (DGP, por sus siglas en inglés), es razonable interpretar al error de predicción $ep_j$ como una variable aleatoria a estimar empíricamente. Por conveniencia y tradición, intentaremos estimar el _error cuadrático medio_ correspondiente a cada modelo, que no es otra cosa que $\mathbb{E}(ep_j^2)$, con un criterio de "validación cruzada deje-uno-fuera" (LOOCV, en inglés).
+
+Para ello, para cada uno de los $m$ modelos $\omega_j$ y las $n$ observaciones $\mathrm{x}_i$, estimaremos $n$ veces los coeficientes de $\omega_j$, _dejando afuera_ una observación cada vez, y usaremos el modelo así ajustado para predecir el valor correspondiente a la observación que dejamos afuera. A riesgo de sobrecargar los índices, llamaremos a esta estimación $\hat{y}^{j(i)}$, y los estimadores de la media y varianza de $ep_j^2$ serán, naturalemnte:
+
+$$
+\begin{split}
+\hat{\mu}_j &= \widehat{\mathbb{E}(ep_j^2)} = n^{-1}\sum_{i=1}^n \left(y_i-\hat{y}^{j(i)}_i\right)^2 \\
+\hat{\sigma}^2_j &= \widehat{\mathbb{Var}(ep_j^2)} = (n-1)^{-1}\sum_{i=1}^n \left[\left(y_i-\hat{y}^{j(i)}_i\right)^2 - \hat{\mu}_j \right]^2 \\
+\end{split}
+$$
+
+Como toda estimación de una variable aleatoria, $\hat{\mu}_j$ está sujeta a cierta incertidumbre, y tomar como criterio de selección del modelo óptimo $\omega^{\star} = \{\omega_j : j = \mathrm{argmin}_{j \in \{1,\dots,m\}} \: \hat{\mu}_j\}$ no es equivalente a elegir  $\omega^{\star} = \{\omega_j : j = \mathrm{argmin}_{j \in \{1,\dots,m\}} \: {ep_j}^2\}$. Si un modelo $\omega_k$ es más complejo que otro $\omega_l$ ($c_k > c_l$) pero tiene indudablemente menor error de predicción  ($ep_k << ep_l$), preferiremos $\omega_k$. Sin embargo, cuando la diferencia entre errores
+no es tan concluyente, un criterio de parsimonia _alla_ "Navaja de Occam" inclinaría la balanza a favor de $\omega_l$. En esta línea argumental, seguiremos la _regla de 1 desvío estándar_ y si $\omega^{ep}=\{\omega_j : j = \mathrm{argmin}_{j \in \{1,\dots,m\}} \: \hat{\mu}_j\}$ es el modelo que minimiza el estimador de $ep^2$, el modelo óptimo será el que minimice la complejidad, dentro de los que están a menos de un desvío estándar de $\hat{\mu}_{ep}$,
+
+$$
+\omega^{\star} = \{\omega_j : c_j\leq c_{ep} \land  \hat{\mu}_j \leq \hat{\mu}_{ep} + \hat{\sigma}_{ep} \}
+$$
+
+Si limitamos la selección de modelos a la familia de _modelos lineales_, $\Omega_L$, una medida razonable de la complejidad de un modelo será la cantidad de coeficientes que ajuste, e irá entre su mínimo en 1 (el modelo basado únicamente en la media global, o los modelos basados en una sola transformación de las covariables y sin ordenada), hasta potencialmente infinito. Nótese además que siempre que $n >p,\: c_j=\#\{\text{coeficientes }\omega_j\}= \mathrm{rg}(\mathrm{H}_j)$, el rango de la matriz de proyección asociada al modelo.
+
+Armados de un criterio sólido de selección de modelos, a continuación hacemos sólo una breve sinopsis de los resultados obtenidos aplicando el mismo criterio a cada problema sin detenernos demasiado en ninguno. Cuando sea posible discutiremos la especificidad de las covariables que comprendamos, y justificaremos someramente los modelos a comparar. Ya que encontrar $\omega^{ep}$ es prerrequisito para encontrar $\omega^{\star}$, en general comentaremos sobre ambos modelos un poco más.
+
+El lector avieso notará que los conjuntos de modelos sobre los cuales elegiremos "el mejor" o "el más parsimonioso" distan de ser exhaustivos. Esto es adrede, ya que cualquier enumeración completa de los modelos es una quimera, y estamos realizando este ejercicio casi a modo ilustrativo. En la vida real, sería irresponsable ofrecer un modelo así elegido, sin entender a fondo las covariables involucradas.
+
+Por último, una palabra sobre la precisión de la predicción. Una métrica razonable y barata de calcular, ya que hemos hecho todo este trabajo y $\hat{\mu}_j$ es el cuadrado del error, será $\sqrt{\hat{\mu}_j}$, o si se prefiere una tasa, $\sqrt{\hat{\mu}_j} / \bar{y}$. Sin embargo, asumir que estas medidas son sinónimos con el verdadero error de predicción $ep_j=y_0-\hat{y}^j_0$ o su razón $ep_j/\mathbb{E(y)}$ no está completamente justificado, al menos no sin mayores suposiciones sobre la distribución de los errores, que hasta aquí no hemos hecho.
+
+
+```{r}
+
+tipo_cols <-  cols(
+  tipo = col_factor(),
+  corrida = col_integer(),
+  G = col_double(),
+  P = col_double(),
+  A = col_double(),
+  V = col_integer(),
+  R = col_double()
+)
+df1 <- read_csv("data/2-1.csv", col_types = tipo_cols)
+
+loocv <- function(formula, data) {
+  n <- nrow(data)
+  preds <- vector("double", n)
+  for (i in seq.int(n)) {
+    lm_fit <- lm(formula, data[-i,])
+    preds[i] <- predict(lm_fit, newdata = data[i,])
+  }
+  full_model
+  return(preds)
+}
+
+crossing(vars1, vars1)
+modelos1 <- list(
+  lineal_completo = R ~ corrida + tipo + A + P + G + V,
+  lineal_sin_corrida = R ~ tipo + A + P + G + V,
+  APGV = R ~ A + P + G + V,
+  A = R ~ A,
+  P = R ~ P,
+  G = R ~ G,
+  V = R ~ V,
+  AP = R ~ A + P,
+  AG = R ~ A + G,
+  AV = R ~ A + V,
+  PG = R ~ P + G,
+  PV = R ~ P + V,
+  GV = R ~ G + V,
+  APG = R ~ A + P + G,
+  APV = R ~ A + P + V,
+  AGV = R ~ A + G + V,
+  PGV = R ~ P + G + V,
+  cuadratico_completo = R ~ (tipo + A + P + G + V)^2,
+  V_por_tipo = R ~ V*tipo,
+  V_mas_tipo = R ~ V + tipo
+)
+
+sqdif <- function(x, y) { (x-y)^2 }
+resumen <- function(data, ycol, modelos) {
+  enframe(modelos, name = "nombre", value = "formula") %>%
+  mutate(
+    loocv_preds = map(formula, loocv, data),
+    sqerrs = map(loocv_preds, sqdif, y = data[[ycol]]),
+    msehat = map_dbl(sqerrs, mean),
+    msehatvar = map_dbl(sqerrs, var))
+}
+
+res1 <- resumen(df1, "R", modelos1)
+
+
+ggpairs(df1, columns=3:7, ggplot2::aes(color=factor(corrida)))
+
+###############
+
+
+tipo_cols <- cols(
+  dia = col_integer(),
+  X1 = col_integer(),
+  X2 = col_integer(),
+  X3 = col_double(),
+  Y = col_double()
+)
+df2 <- read_csv("data/2-2.csv", col_types = tipo_cols)
+ggpairs(df2)
+
+
+modelos2 <- list(
+  completo = Y ~ dia + X1 + X2 + X3,
+  X1X2 = Y ~ X1 + X2,
+  X1X3 = Y ~ X1 + X3,
+  X2X3 = Y ~ X2 + X3,
+  X1 = Y ~ X1,
+  X2 = Y ~ X2,
+  X3 = Y ~ X3,
+  cte = Y ~ 1,
+  sindia = Y ~ X1 + X2 + X3,
+  cuadratico = Y ~ (X1 + X2 + X3)^2,
+  cubico = Y ~ (X1 + X2 + X3)^3
+)
+
+res2 <- resumen(df2, "Y", modelos2)
+
+all_subsets_df2 <- olsrr::ols_step_all_possible(lm(Y ~ ., df2))
+
+df2 %>%
+  gather("covariable", "valor", -dia) %>%
+  ggplot(aes(dia, valor, color = covariable)) +
+  geom_line() +
+  scale_y_log10()
+
+  
+##############
+
+tipo_cols <- cols(
+  muestra = col_integer(),
+  Y = col_double(),
+  L1 = col_integer(),
+  L2 = col_integer(),
+  L3 = col_integer(),
+  L4 = col_integer(),
+  L5 = col_integer(),
+  L6 = col_integer()
+)
+df3 <- read_csv("data/2-3.csv")
+
+modelos3 <- list(
+  completo = Y ~ .,
+  sinmuestra = Y ~ L1 + L2 + L3 + L4 + L5 + L6,
+  cuadrado = Y ~ (L1 + L2 + L3 + L4 + L5 + L6)^2,
+  L3456 = Y ~  L3 + L4 + L5 + L6,
+  L345 = Y ~  L3 + L4 + L5,
+  L34 = Y ~  L3 + L4,
+  L34_cuadrado = Y ~ (L3 + L4)^2,
+  L3 = Y ~  L3
+)
+res3 <- resumen(df3, "Y", modelos3)
+
+all_subsets_df3 <- olsrr::ols_step_all_possible(lm(Y ~ ., df3))
+# https://books.google.com.ar/books?id=6EEd1a0uka0C&redir_esc=y
+# https://en.wikipedia.org/wiki/Near-infrared_spectroscopy#Agriculture
+# https://stats.stackexchange.com/questions/80268/empirical-justification-for-the-one-standard-error-rule-when-using-cross-validat
+```
