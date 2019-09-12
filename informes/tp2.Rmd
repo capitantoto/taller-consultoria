@@ -1,24 +1,26 @@
 ---
 title: "Taller de Consultoria - TP2 - Selección de Modelos"
 author: "Gonzalo Barrera Borla"
-date: "8/25/2019"
+date: "11/09/2019"
 output:
   pdf_document: default
 urlcolor: blue
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, message = FALSE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
 options(tinytex.verbose = TRUE)
 library(tidyverse)
 library(broom)
 library(GGally)
 ```
 
-# Introducción
-En los tres ejercicios de esta práctica se busca 
-- (a) elegir un modelo $M$ para predecir la variable $y$ a partir de una muestra aleatoria $X$ de un  conjunto de covariables $x_1, x_2, y
-- (b) dar una medida del error de predicción asociado a $\hat{y}=\delta_M(X)$.
+## Introducción
+
+En los tres ejercicios de esta práctica se busca
+
+- (a) elegir un modelo $M$ para predecir la variable $y$ a partir de una muestra aleatoria $X$ de un  conjunto de covariables $x_1, x_2, \dots, x_n$, y
+- (b) dar una medida del error de predicción asociado a $\hat{y}=M(X)$.
 
 A diferencia del TP1, los tres problemas que ahora nos competen ilustran situaciones tan específicas que comprender la relación entre las covariables sin la ayuda de un técnico en el campo es una tarea vana. La _opacidad_ del conjunto de covariables (que no es una caja negra, pero tampoco es transparente) nos obliga a intentar ajustar _varios_ modelos en cada situación, y elegir el "mejor" entre ellos, según algún criterio de bondad a definir. Un poco más formalmente,
 
@@ -31,7 +33,7 @@ Para ello, para cada uno de los $m$ modelos $\omega_j$ y las $n$ observaciones $
 $$
 \begin{split}
 \hat{\mu}_j &= \widehat{\mathbb{E}(ep_j^2)} = n^{-1}\sum_{i=1}^n \left(y_i-\hat{y}^{j(i)}_i\right)^2 \\
-\hat{\sigma}^2_j &= \widehat{\mathbb{Var}(ep_j^2)} = (n-1)^{-1}\sum_{i=1}^n \left[\left(y_i-\hat{y}^{j(i)}_i\right)^2 - \hat{\mu}_j \right]^2 \\
+\hat{\sigma}^2_j &= \widehat{\mathbb{V}(ep_j^2)} = (n-1)^{-1}\sum_{i=1}^n \left[\left(y_i-\hat{y}^{j(i)}_i\right)^2 - \hat{\mu}_j \right]^2 \\
 \end{split}
 $$
 
@@ -48,11 +50,61 @@ Armados de un criterio sólido de selección de modelos, a continuación hacemos
 
 El lector avieso notará que los conjuntos de modelos sobre los cuales elegiremos "el mejor" o "el más parsimonioso" distan de ser exhaustivos. Esto es adrede, ya que cualquier enumeración completa de los modelos es una quimera, y estamos realizando este ejercicio casi a modo ilustrativo. En la vida real, sería irresponsable ofrecer un modelo así elegido, sin entender a fondo las covariables involucradas.
 
-Por último, una palabra sobre la precisión de la predicción. Una métrica razonable y barata de calcular, ya que hemos hecho todo este trabajo y $\hat{\mu}_j$ es el cuadrado del error, será $\sqrt{\hat{\mu}_j}$, o si se prefiere una tasa, $\sqrt{\hat{\mu}_j} / \bar{y}$. Sin embargo, asumir que estas medidas son sinónimos con el verdadero error de predicción $ep_j=y_0-\hat{y}^j_0$ o su razón $ep_j/\mathbb{E(y)}$ no está completamente justificado, al menos no sin mayores suposiciones sobre la distribución de los errores, que hasta aquí no hemos hecho.
+Por último, unas palabras sobre la precisión de la predicción. Una métrica razonable y barata de calcular, ya que hemos hecho todo este trabajo y $\hat{\mu}_j$ es el estimador del cuadrado del error, será $\sqrt{\hat{\mu}_j}$, o si se prefiere una tasa, $\sqrt{\hat{\mu}_j} / \bar{y}$. Sin embargo, asumir que estas medidas son sinónimos con el verdadero error de predicción $ep_j=y_0-\hat{y}^j_0$ o su razón $ep_j/\mathbb{E(y)}$ sería un error. Sin mayor justificación que su intuitividad, usaremos como medida de precisión para e modelo $\omega_j$, el promedio de los desvíos absolutos entre las predicciones de LOOCV y los verdaderos valores, que llamaremos $\rho_j$:
+
+$$
+\rho_j = n^{-1}\sum_i\frac{\left|y_i-\hat{y}^{j(i)}_i\right|}{y_i}
+$$
 
 
-```{r}
+```{r metodos}
+loocv <- function(formula, data) {
+  n <- nrow(data)
+  preds <- vector("double", n)
+  for (i in seq.int(n)) {
+    lm_fit <- lm(formula, data[-i,])
+    preds[i] <- predict(lm_fit, newdata = data[i,])
+  }
+  return(preds)
+}
 
+sqdif <- function(x, y) { (x-y)^2 }
+rho <- function(yhat, y) { mean(abs(y - yhat) / y) }
+resumen <- function(data, ycol, modelos) {
+  y <- data[[ycol]]
+  enframe(modelos, name = "nombre", value = "formula") %>%
+  mutate(
+    loocv_preds = map(formula, loocv, data),
+    sqerrs = map(loocv_preds, sqdif, y),
+    msehat = map_dbl(sqerrs, mean),
+    msehatvar = map_dbl(sqerrs, var),
+    rhohat = map_dbl(loocv_preds, rho, y))
+}
+
+imprimir_resumen <- function(res) {
+  res %>%
+  transmute(
+    modelo = map_chr(formula, deparse),
+    ec = signif(msehat, 4),
+    desvio = signif(sqrt(msehatvar), 4),
+    precision = signif(rhohat, 4)) %>%
+  arrange(ec) %>%
+  knitr::kable()
+}
+```
+
+## Ejercicio 1
+
+La definición de las covariables en el ejercicio tiene algunas particularidades.  Por un lado, la "gravedad" API [2] es una escala de densidad específica, propuesta por el American Petroleum Institute. Según las clasificaciones tradicionales, todos los tipos de petróleo evaluados tienen una gravedad mayor a 31.1° (i.e., menor a 870 kg/m3) y por ende son "crudos ligeros". Las otras dos variables con curiosa escala, A y V, están expresadas en "punto ASTM". La "Sociedad Americana para Pruebas y Materiales", o ASTM por sus siglas en inglés, tiene publicados más de 12.000 (!) estándares a la fecha, así que saber a cuál hace referencia la descripción es como buscar una aguja en un pajar. Si fuésemos hombres de apuestas, seguramente nos jugaríamos por el [3] _ASTM D1837-17: Standard Test Method for Volatility of Liquefied Petroleum (LP) Gases_. Lamentablemente, el estándar fue retirado de circulación en 2017 al haber sido supeditado por métodos más directos y eficientes como la cromatografía de gases.
+
+Una primera dificultad al analizar los datos surge al notar que los pares de covariables $(tipo, P), (tipo, A), (tipo, G)$ son perfectamente colineales. Esto es razonable, ya que $P, G, A$ son _características_ de un cierto $tipo$ de combustible, pero conducen a matrices de rango incompleto al incluir a más de una de ellas en un modelo.
+El único tratamiento que se le dio a los datos, entonces, fue 
+
+- eliminar la variable $corrida$: el orden de fabricación de cada lote no debería afectar el resultado. Además, hay una fuerte e inexplicable correlación entre la volatilidad final $V$ y la corrida para todos los tipos de crudo, que no conviene incluir.
+- transformar la variable $tipo$ en factor: si usásemos el valor entero que se provee, estaríamos asumiendo implícitamente un orden entre los distintos tipos de crudo, que la información a mano no justifica. Es preferible tratarla como categórica, y dejar que R genera las "dummies" que hagan falta para representarla.
+
+A continuación, presentamos en forma de tabla las tuplas $(\omega_j,\:\hat{\mu}_j,\:\hat{\sigma}_j, \rho_j)$ para una selección arbitraria de modelos posibles, con 4 cifras significativas:
+```{r ej1}
 tipo_cols <-  cols(
   tipo = col_factor(),
   corrida = col_integer(),
@@ -62,20 +114,8 @@ tipo_cols <-  cols(
   V = col_integer(),
   R = col_double()
 )
-df1 <- read_csv("data/2-1.csv", col_types = tipo_cols)
+df1 <- read_csv("../data/2-1.csv", col_types = tipo_cols)
 
-loocv <- function(formula, data) {
-  n <- nrow(data)
-  preds <- vector("double", n)
-  for (i in seq.int(n)) {
-    lm_fit <- lm(formula, data[-i,])
-    preds[i] <- predict(lm_fit, newdata = data[i,])
-  }
-  full_model
-  return(preds)
-}
-
-crossing(vars1, vars1)
 modelos1 <- list(
   lineal_completo = R ~ corrida + tipo + A + P + G + V,
   lineal_sin_corrida = R ~ tipo + A + P + G + V,
@@ -99,24 +139,18 @@ modelos1 <- list(
   V_mas_tipo = R ~ V + tipo
 )
 
-sqdif <- function(x, y) { (x-y)^2 }
-resumen <- function(data, ycol, modelos) {
-  enframe(modelos, name = "nombre", value = "formula") %>%
-  mutate(
-    loocv_preds = map(formula, loocv, data),
-    sqerrs = map(loocv_preds, sqdif, y = data[[ycol]]),
-    msehat = map_dbl(sqerrs, mean),
-    msehatvar = map_dbl(sqerrs, var))
-}
-
 res1 <- resumen(df1, "R", modelos1)
+imprimir_resumen(res1)
+```
 
+Resulta entonce que $\omega^{ep}:= R \sim tipo + A + P + G + V$, con complejidad $c_{ep}= 6$ (si consideramos a las 9 dummies de $tipo$ como una sola) o $c_{ep}=14$ (si somos estrictos con la definición, pero dentro de un desvío estándar de $\hat{\mu}_{ep}$ encontramos $\omega^{\star} := R \sim A + V$, con prácticamente la misma precisión (~16%), un error $\hat{\mu}_{\star}$ muy similar, pero mucha menor complejidad, $c_{\star}=3$.
 
-ggpairs(df1, columns=3:7, ggplot2::aes(color=factor(corrida)))
+## Ejercicio 2
 
-###############
+Si las variables del ejercicio 1 estaban curiosamente definidas, estas dan aún más lugar para la imaginación: un "flujo de aire" $X_1$ en unidades desconocidas, una concentración de ácido $X_3$ en porcentaje (¿de qué? ¿de los reactivos totales? ¿por qué no se usará el pH?), y una pérdida también en unidades desconocidas.
 
-
+Como especifica el ejercicio, excluimos la variable $dia$ de (casi) todos los modelos a comparar, con un par de excepciones por curiosidad intelectual. Presentamos análogo resumen al del ejercicio anterior:
+```{r ej2}
 tipo_cols <- cols(
   dia = col_integer(),
   X1 = col_integer(),
@@ -124,9 +158,7 @@ tipo_cols <- cols(
   X3 = col_double(),
   Y = col_double()
 )
-df2 <- read_csv("data/2-2.csv", col_types = tipo_cols)
-ggpairs(df2)
-
+df2 <- read_csv("../data/2-2.csv", col_types = tipo_cols)
 
 modelos2 <- list(
   completo = Y ~ dia + X1 + X2 + X3,
@@ -143,18 +175,22 @@ modelos2 <- list(
 )
 
 res2 <- resumen(df2, "Y", modelos2)
+imprimir_resumen(res2)
+```
 
-all_subsets_df2 <- olsrr::ols_step_all_possible(lm(Y ~ ., df2))
+Curiosamente, $\omega_{ep} := Y \sim dia + X_1 + X_2 + X_3$, con un $\hat{\mu}$ ligeramente mejor que el mismo modelo, sin día. En otras palabras, pareciera ser que _algo_ de información está codificada en esa secuencia, pero incluirla en el modelo sabiendo tan poco es un tanto irresponsable.
+En este caso, el desvío estimado es tan alto para $\omega_{ep}$ que no sólo uno, sino dos modelos de una sola covariable entran en el intervalo de la R1DE: $Y \sim X_1$ y $Y \sim X_2$. Elegiremos $\omega_{\star} := Y \sim X_1$ que es (por mucho) el de menor ECM estimado entre ambos. Otro dato interesante, es que aunque $5 = c_{ep} > c_{\star} = 2$, $\rho_{\star} \approx 0.17 < 0.19 \approx \rho_{ep}$: ¡la precisión del modelo más simple, asi medida, es mayor que la del modelo más complejo! Esto se debe, probablemente, a que alguna predicción LOOCV de $\omega_{\star}$ haya sido particularmente mala, lo cual lo penaliza relativamente más en nuestro estimador del ECM $\hat{\mu}$, que en nuestra medida de precisión $\rho$.
 
-df2 %>%
-  gather("covariable", "valor", -dia) %>%
-  ggplot(aes(dia, valor, color = covariable)) +
-  geom_line() +
-  scale_y_log10()
+Anecdóticamente, nótese que los modelos cuadrático ($c_{2}=10$) y cúbico ($c_{3}=20$, si no me equivoco) en todas las covariables no agregan nada de información, y por ende no mejoran el ECM. Tal vez, si contásemos con miles y miles de observaciones de las cuales extraer estructura y las mismas únicas 3 covariables, la historia sería distinta.
 
-  
-##############
+## Ejercicio 3
 
+Investigando en la Internet, descubrimos que efectivamente, la espectroscopía del espectro infrarrojo cercano (NIR, por sus siglas en inglés) se utiliza en agricultura [4] para medir la calidad de distintos cultivos y suelos, ya que es un método no-invasivo y relativamente barato. El "estándar dorado", sin embargo, para medir el contenido de nitrógeno en sustancias orgnánicas, e indirectamente el contenido proteico de las mismas, es el método de Kjeldahl [5]. Vale aclarar que ambos métodos son formas indirectas de medir la cantidad de proteína en una muestra, y por lo tanto son susceptibles a manipulaciones. En un incidente particularmente cruento [6], en 2008 más de 54,000 bebés fueron hospitalizados y al menos 12 murieron por cálculos renales o insuficiencia proteica cuando varias marcas de leche en polvo adulteraron sus productos con melamina, un químico compuesto en 67% m/m por nitrógeno, más conocido como la materia prima para los revestimientos de fórmica. Como bien hemos aprendido ya, hacer inferencia sobre cierto soporte de los datos y luego aplicar los resultados obtenidos a muestras por fuera de ese dominio, no garantiza resultados válidos. 
+
+Siendo ésta data de _calibración_ de un instrumento, asumimos que las muestras de trigo no están adulteradas, pero tampoco tenemos mucha información sobre la cual trabajar, ya que ni siquiera conocemos las longitudes de onda medidas, como para poder estimar un perfil de absorción de radiación. Así las cosas, con 6 covariables disponibles, sólo los posibles modelos lineales en ellas ascienden a $2^6=64$, de modo que _tras bambalinas_ primero recurrimos al método `GGally::ggpairs` para graficar los "scatterplots" y calcular la correlación entre cada par de variables disponibles, pero no obtuvimos demasiada información: las seis variables $L_i$ están tan correlacionadas que todos los scatterplots se ven iguales: una línea recta con pendiente positiva.
+A continuación, sacamos la artillería pesada, y usamos el método `olsrr::ols_all_subset` para ajustar todos los modelos lineales posibles, elegir un subconjunto de los más prometedores, y calcular el ECM según LOOCV como hasta ahora. 
+
+```{r ej3}
 tipo_cols <- cols(
   muestra = col_integer(),
   Y = col_double(),
@@ -165,22 +201,35 @@ tipo_cols <- cols(
   L5 = col_integer(),
   L6 = col_integer()
 )
-df3 <- read_csv("data/2-3.csv")
+df3 <- read_csv("../data/2-3.csv", col_types = tipo_cols)
 
 modelos3 <- list(
-  completo = Y ~ .,
+  completo = Y ~ muestra + L1 + L2 + L3 + L4 + L5 + L6,
   sinmuestra = Y ~ L1 + L2 + L3 + L4 + L5 + L6,
   cuadrado = Y ~ (L1 + L2 + L3 + L4 + L5 + L6)^2,
-  L3456 = Y ~  L3 + L4 + L5 + L6,
-  L345 = Y ~  L3 + L4 + L5,
+  L3456 = Y ~ L3 + L4 + L5 + L6,
+  L345 = Y ~ L3 + L4 + L5,
   L34 = Y ~  L3 + L4,
   L34_cuadrado = Y ~ (L3 + L4)^2,
-  L3 = Y ~  L3
+  L3 = Y ~ L3,
+  L4 = Y ~ L4
 )
-res3 <- resumen(df3, "Y", modelos3)
 
-all_subsets_df3 <- olsrr::ols_step_all_possible(lm(Y ~ ., df3))
-# https://books.google.com.ar/books?id=6EEd1a0uka0C&redir_esc=y
-# https://en.wikipedia.org/wiki/Near-infrared_spectroscopy#Agriculture
-# https://stats.stackexchange.com/questions/80268/empirical-justification-for-the-one-standard-error-rule-when-using-cross-validat
+res3 <- resumen(df3, "Y", modelos3)
+imprimir_resumen(res3)
 ```
+
+$\omega_{ep} := Y \sim L_3 + L_4 + L_5$, con $c_{ep}=4$, y $\omega_{\star} := Y \sim L_3 + L_4$, con $c_{\star}=3$. La precisión de ambos modelos es muy similar y dado lo indirecto del método, sorprendentemente buena: ligeramente por encima del 2%, comparado con el ~16% de los ejercicios previos.
+
+Como en los ejercicios previos, si trazásemos un intervalo de confianza alrededor del estimador puntual, $0 \in (\hat{\mu}_{ep} \pm 1\hat{\sigma}_{ep})$. Evidentemente, (y esto es natural considerando que el ECM es siempre positivo), la distribución no es simétrica alrededor de la media, y ofrecer un verdadero IC para el ECM no es ejercicio trivial. En la misma línea,  tal vez a causa del pequeño tamaño muestral  $\hat{\mu}_{ep} < \hat{\sigma}_{ep}$, y la regla de 1SD deja verdaderamente mucho espacio para elegir modelos parsimoniosos. En este caso, resulta ilustrativo ver que por separado $Y \sim L_3$ y $Y \sim  L_4$ son modelos con enorme error, pero el modelo combinado es ~6 veces más preciso y con ~25 veces menor ECM.
+
+Por último, se ve que con variables tan correlacionadas, agregar los términos cuadráticos al modelo dispara el ECM de VC al demonio (aunque de seguro no puede disparar el ECM de entrenamiento), cosa que no necesariamente sucede cuando hay menos términos disponibles como en el ejercicio 2. 
+
+## Referencias
+
+- [1] Justificacion empírica de la "regla de un desvío estándar" - [enlace](https://stats.stackexchange.com/questions/80268/empirical-justification-for-the-one-standard-error-rule-when-using-cross-validat)
+- [2] Gravedad API - [enlace](https://en.wikipedia.org/wiki/API_gravity)
+- [3] ASTM D1837-17: Standard Test Method for Volatility of Liquefied Petroleum (LP) Gases (Withdrawn 2017) - [enlace](https://www.astm.org/Standards/D1837.htm)
+- [4] Espectroscopía infrarroja cercana (NIR) en agricultura - [enlace](https://en.wikipedia.org/wiki/Near-infrared_spectroscopy#Agriculture)
+- [5] Método Kjeldahl - [enlace](https://en.wikipedia.org/wiki/Kjeldahl_method)
+- [6] Adulteración de leche para bebés en 2008 - [enlace](https://en.wikipedia.org/wiki/2008_Chinese_milk_scandal)
