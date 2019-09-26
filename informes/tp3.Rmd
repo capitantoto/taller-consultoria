@@ -8,27 +8,17 @@ urlcolor: blue
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, message = FALSE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
 options(tinytex.verbose = TRUE)
 ```
 
 # Setup
 ```{r}
 library(tidyverse) # manipulación de datos en general, graficos
-library(broom) # limpieza y estructuracion de resultados de regresiones
+#library(broom) # limpieza y estructuracion de resultados de regresiones
 ```
 
 # Ejercicio 1
-
->  Los datos siguientes corresponden a un experimento realizado por Charles Darwin en 1876. En cada maceta se plantan dos brotes de maíz, uno producido por fertilización cruzada, y el otro por auto-fertilización. El objetivo era mostrar las ventajas de la fertilización  cruzada. Los datos son las altura finales de las plantas después de un período de tiempo. ¿Alguno de los dos tipos de maíz es demostrablemente mejor?. Si es así, ¿cómo se puede describir la diferencia?. 
-
-Sean $Y_i$ la alturas del brote de maíz producido por fertilización cruzada de la  maceta $i\in\{1,\dots,n\}, n=15$, y $X_i$ la altura del producido por auto-fertilización. Hay dos decisiones preguntas a responder, que determinarán qué clase de test realizar:
-
-a. ¿Es normal la distribución de las alturas de ambos tipos de brotes?
-b. ¿Es cada maceta lo suficientemente diferente de las demás para representar un _bloque_ en el diseño del experimento?
-
-Si la respuesta a (a) es "sí", podemos usar un "test t", dSi asumimos que la distribución en la altura de ambas especies es normal, podemos realizar un "test t"
-
 
 ```{r}
 tipo_cols <- cols(
@@ -37,39 +27,68 @@ tipo_cols <- cols(
   auto = col_double()
 )
 df1 <- read_csv("../data/3-1.csv", col_types = tipo_cols)
-df1
-wilcox.test(df1$cruz, df1$auto, paired = TRUE, alternative = "greater",
-            conf.int = T, conf.level = 0.95)
-wilcox.test(df1$cruz, df1$auto, paired = FALSE, alternative = "greater",
-            conf.int = T, conf.level = 0.95)
-t.test(df1$cruz, df1$auto, paired = TRUE, alternative = "greater",
-            conf.int = T, conf.level = 0.95)
-t.test(df1$cruz, df1$auto, paired = FALSE, alternative = "greater",
-            conf.int = T, conf.level = 0.95, var.equal = FALSE)
-t.test(df1$cruz, df1$auto, paired = FALSE, alternative = "greater",
-            conf.int = T, conf.level = 0.95, var.equal = TRUE)
 ```
-df %>%
-  ggplot(aes(auto, cruz)) +
-  geom_point() +
-  geom_abline(intercept = 0, slope = 1, alpha = 0.3)
 
-df %>%
-  gather("tipo", "valor", -maceta) %>%
-  ggplot(aes(valor, color = tipo)) +
-  geom_density() +
-  geom_rug()
-juntos <- df %>%
-  gather("tipo", "valor", -maceta)
-df %>%
-  mutate(diferencia = cruz - auto) %>%
-  ggplot(aes(diferencia)) +
-  geom_density() +
-  geom_rug()
+>  Los datos siguientes corresponden a un experimento realizado por Charles Darwin en 1876. En cada maceta se plantan dos brotes de maíz, uno producido por fertilización cruzada, y el otro por auto-fertilización. El objetivo era mostrar las ventajas de la fertilización  cruzada. Los datos son las altura finales de las plantas después de un período de tiempo. ¿Alguno de los dos tipos de maíz es demostrablemente mejor?. Si es así, ¿cómo se puede describir la diferencia?. 
+
+Sea $\Omega_0$ la familia de distribuciones tal que
+
+$$
+\Omega_0 = \{F:F \text{ es absolutamente continua con única mediana en }0\}
+$$
+Sea $Y_i$ la altura del brote de maíz producido por fertilización cruzada de la  maceta $i\in\{1,\dots,n\}, n=15$, y $X_i$ la altura del producido por auto-fertilización. Supondremos además, razonablemente, que  $Y_i \stackrel{iid}{\sim} F_Y(t)=F(t-\theta_Y), \: F \in \Omega_0$ (es decir que $F_Y$ es absolutamente continua con única mediana en $\theta_Y$). Análogamente, $X_i \stackrel{iid}{\sim} F_X(t)=F(t-\theta_X)$. Como _"el objetivo era mostrar las ventajas de la fertilización  cruzada"_, una forma razonable de plantear este test será:
+
+$$
+H_0 := \theta_Y = \theta_X \quad \text{vs.} \quad H_1:= \theta_Y > \theta_X
+$$
+Como los brotes están naturalmente apareados en sus respectivas macetas, es razonable realizar un test de muestras apareadas. Para determinar qué clase de test realizar, nos resta contestar: ¿Es normal la distribución de las alturas de ambos tipos de brotes? Si la respuesta es "sí", podemos usar un "test t", mientras que si no será conveniente recurrir a alguna  alternativa no paramétrica, como el test de Wilcoxon de rangos signados, que sólo requiere que la distribución bajo la hipótesis nula sea simétrica.
+
+```{r}
+pv_norm_dif <- shapiro.test(df1$cruz - df1$auto)$p.value
+pv_norm_auto <- shapiro.test(df1$auto)$p.value
+pv_norm_cruz <- shapiro.test(df1$cruz)$p.value
+```
+
+Para testear la normalidad de los datos, utilizamos el test de Shapiro univariado. Para la diferencia $D_i=Y_i - X_i$, el p-valor es de `r signif(pv_norm_dif, 2)`, que dependiendo del nivel de significaión utilizado puede alcanzar o no para rechazar la normalidad. Si realizamos dos tests por separado, para la muestra $(X_1,\dots,X_n)$ de brotes autofertilizados obtenemos un p-valor `r signif(pv_norm_auto, 2)` con lo cual es razonable asumir su normalidad, pero al aplicar el test a la muestra de fertilización cruzada, obtenemos un p-valor de `r signif(pv_norm_cruz, 2)` que nos lleva a rechazar su normalidad. Resulta difícil suponer que por casualidad las diferencias de altura resulten normales si cada muestra no tiene una distribución normal subyacente, así que por seguridad convendrá recurrir a un test no paramétrico.
+
+Nótese que bajo $H_0 := \theta_Y = \theta_X \Rightarrow \: F_X=F_Y$, de manera que la distribución de $Y_i - X_i$ será simétrica, y podemos utilizar un test de Wilcoxon para datos apareados con confianza.
+
+
+```{r}
+alfa <- 0.05
+wcx_apar <- wilcox.test(df1$cruz, df1$auto, paired = T, alternative = "g",
+                        conf.int = T, conf.level =1-alfa)
+wcx_2samp <- wilcox.test(df1$cruz, df1$auto, paired = F, alternative = "g",
+                        conf.int = T, conf.level = 1-alfa)
+t_apar <- t.test(df1$cruz, df1$auto, paired = T, alternative = "g",
+                        conf.int = T, conf.level = 1-alfa)
+t_2samp <- t.test(df1$cruz, df1$auto, paired = F, alternative = "g",
+                        conf.int = T, conf.level = 1-alfa)
+```
+Este test arroja un p-valor de `r signif(wcx_apar$p.value, 2)`, de manera que con el tradicional criterio de significación $\alpha = `r alfa`$, podemos rechazar la hipótesis nula y concluir que la diferencia entre las medianas de los brotes de fertilización cruzada y los autofertilizados es positiva. Aprovechando el hecho de que el estadístico $T^+$ es un estimador de Hodges-Lehmann, podemos encontrar también el intervalo de confianza de nivel `r 100*(1-alfa)`% correspondiente al test, que resulta ser $[`r wcx_apar$conf.int`)$.
+
+Por último, y a modo ilustrativo, incluimos en la siguiente tabla los p-valores e intervalos de confianza de nivel `r 100*(1-alfa)`% correspondientes a cuatro alternativas de test razonables en este problema: 
+
+```{r}
+tribble(
+  ~Muestras, ~Test, ~llamada,
+  "apareadas", "Wilcoxon", wcx_apar,
+  "2 muestras", "Wilcoxon", wcx_2samp,
+  "apareadas", "T de Student", t_apar,
+  "2 muestras", "T de Student", t_2samp) %>%
+  mutate(
+    "p-valor" = map_dbl(llamada, "p.value"),
+    "Lím. inf. IC" = map(llamada, "conf.int") %>% map_dbl(1)
+  ) %>%
+  select(-llamada) %>%
+  knitr::kable(digits = 4)
+```
+Es decir, que en todos los casos hubiésemos rechazado la hipótesis nula, pero la estimación de la diferencia en las medianas/medias hubiese sido bastante distinta.
 
 # Ejercicio 2
+```{r}
 tipo_cols <- cols()
-df2 <- read_csv("data/3-2.csv", col_types = tipo_cols)
+df2 <- read_csv("../data/3-2.csv", col_types = tipo_cols)
 juntos2 <- df2 %>%
   gather("trt", "sobrevida", -veneno) %>%
   mutate(
@@ -96,7 +115,7 @@ juntos2 %>%
 
 TukeyHSD(aov(sobrevida ~ veneno + trt, juntos2))
 
-friedman.test(sobrevida ~ trt | veneno, juntos2)
+
 medias_juntos2 <- juntos2 %>%
   group_by(veneno, trt) %>%
   summarise(sobrevida = mean(sobrevida))
@@ -109,7 +128,7 @@ tipo_cols <- cols(
   muestreadas = col_integer(),
   aberrantes = col_integer()
 )
-df3 <- read_csv("data/3-3.csv", col_types = tipo_cols)
+df3 <- read_csv("../data/3-3.csv", col_types = tipo_cols)
 
 df3 <- df3 %>%
   mutate(
@@ -124,4 +143,5 @@ lm3c <- glm(prop ~ substancia*dosis, df3, weights = muestreadas,
             family=binomial)
 summary(lm3c)
 
-lm3d <- glm(aberrantes ~ muestreadas + dosis*substancia, df3, family=binomial)
+#lm3d <- glm(aberrantes ~ muestreadas + dosis*substancia, df3, family=binomial)
+```
