@@ -15,7 +15,8 @@ options(tinytex.verbose = TRUE)
 # Setup
 ```{r}
 library(tidyverse) # manipulación de datos en general, graficos
-#library(broom) # limpieza y estructuracion de resultados de regresiones
+library(broom) # limpieza y estructuracion de resultados de regresiones
+library(GGally) # gráficos de perfiles, entre otros
 ```
 
 # Ejercicio 1
@@ -83,44 +84,175 @@ tribble(
   select(-llamada) %>%
   knitr::kable(digits = 4)
 ```
+
 Es decir, que en todos los casos hubiésemos rechazado la hipótesis nula, pero la estimación de la diferencia en las medianas/medias hubiese sido bastante distinta.
 
 # Ejercicio 2
+
+> Se dan a continuación los tiempos de sobrevida (en unidades de 10 horas) de animales, sometidos a 3 tipos de veneno, y 4 tratamientos antitóxicos. Cada combinación veneno-tratamiento se prueba con 4 animales.  Describir la influencia de ambos factores en la sobrevida.  ¿Hay algún tratamiento demostrablemente mejor?
+
+Para hacer más intuitiva la información, cambiamos las unidades de `sobrevida` de modo que esté en horas. Sea  $y_{ijk}$ la sobrevida del $k$-ésimo animal, sometida al tratamiento $j$ para el veneno $i$, en general planteamos $y_{ijk} = \mu + \alpha_i + \beta_j + \gamma_{ij} + \epsilon_{ijk}$, donde $i \in \{I, II, II\}, \: j \in \{A, B, C, D\}, \: k \in \{1, 2, 3, 4\}$ y $\epsilon_{ijk} \sim N(0, \sigma^2)$.
+
+Para darnos una idea de la relación entre venenos y tratamientos, comenzamos graficando los perfiles:
+
 ```{r}
 tipo_cols <- cols()
-df2 <- read_csv("../data/3-2.csv", col_types = tipo_cols)
-juntos2 <- df2 %>%
+raw2 <- read_csv("../data/3-2.csv", col_types = tipo_cols)
+df2 <- raw2 %>%
   gather("trt", "sobrevida", -veneno) %>%
   mutate(
-#    trt = as_factor(trt),
+    trt = as_factor(trt),
     sobrevida = sobrevida * 10)
-lm2 <- lm(sobrevida ~ veneno + trt, juntos2)
+
+df2 %>%
+  group_by(veneno, trt) %>%
+  summarise_all(mean)%>%
+  spread(veneno, sobrevida) %>%
+  ggparcoord(2:4, "trt") +
+  labs(title = "Sobrevida promedio por tratamiento",
+       x = "Veneno", y = "Sobrevida (hs)", color = "Trat.")
+
+df2 %>%
+  group_by(veneno, trt) %>%
+  summarise_all(mean)%>%
+  spread(trt, sobrevida) %>%
+  ggparcoord(2:5, "veneno") +
+  labs(title = "Sobrevida promedio por veneno",
+       x = "Tratamiento", y = "Sobrevida (hs)", color = "Veneno")
+```
+
+A primera vista, no se observa paralelismo en ninguno de los dos gráficos Sin embargo, salvo un ligero entrecruzamiento en los perfiles de los venenos II y III para los tratamientos C y D, los perfiles no se cruzan en ningún otro punto, por lo que tal vez sea razonable ignorar las interacciones y considerar un modelo de efectos únicamente aditivos.
+
+Por otra parte, debemos corroborar el fortísimo supuesto de _homocedasticidad_ de los $\epsilon_{ijk}$ que hicimos inicialmente. Seber [1977, p. 195] siguiendo a Scheffé menciona que cuando se cuenta con un diseño balanceado como aquí, la desigualdad en las varianzas para cada combinación de bloque y tratamiento no hace demasiado "daño", siempre y cuando la razón entre el mayor y el menor desvío estándar es menor a 2. Lamentablemente, nuestros datos son "bochornosos" en tal sentido:
+
+```{r}
+df2 %>%
+  group_by(veneno, trt) %>%
+  summarise_all(lst(mean, sd)) %>%
+  arrange(desc(sd)) %>%
+  knitr::kable(
+    digits = 3,
+    caption = "La tasa entre los desvios de II:B y III:C es mayor a 26")
+```
+
+Antes de proseguir, nos convendrá entonces considerar una transformación [estabilizadora de la varianza](https://en.wikipedia.org/wiki/Variance-stabilizing_transformation) que al menos morigere esta situación. 
+
+Si graficamos el desvío en función de la media de cada grupo, observamos una estructura razonablemente lineal en la media:
+
+```{r}
+df2 %>%
+  group_by(veneno, trt) %>%
+  summarise_all(lst(mean, sd)) %>%
+  ggplot(aes(mean, sd, color = trt, shape = veneno)) +
+  geom_point() +
+  labs(x = "Media", y = "Desvío", shape = "Veneno", color = "Trat.")
+```
+
+En este caso, donde $\sigma \approx k \times \mu$, la transformación sugerida es el logaritmo. Esto es razonable, ya que al hablar por ejemplo del logaritmo base 2 de la _sobrevida_, un tratamiento que duplica la supervivencia, aumentará $\log_2(y)$ en una unidad. Aplicando esta transformación, el la razón entre el máximo y mínimo desvíos anteriormente mencionada mejora bastante, pero sigue estando por encima de 7, muy lejos del corte de 2 que propone Seber.
+
+Haremos un intento más, y en lugar de considerar la transformación logarítmica, buscaremos la transformación "óptima" según este criterio de optimalidad, de entre la familia de transformaciones [Box-Cox](https://en.wikipedia.org/wiki/Power_transform#Box%E2%80%93Cox_transformation) de un parámetro, que incluye el logaritmo natural como un caso especial cuando $\lambda=0$:
+
+$$
+y_i^{(\lambda)} =
+\begin{cases}
+ \dfrac{y_i^\lambda - 1}{\lambda} & \text{if } \lambda \neq 0, \\
+ \ln y_i & \text{if } \lambda = 0,
+\end{cases}
+$$
+
+Si graficamos la relación entre el mayor y menor desvío estándar por bloque y tratamiento para distintos $\lambda$, observamos que el mínimo se encuentra alrededor de $\lambda=-0.87$, que lleva la tasa de desvíos a $\approx 3.6$:
+
+```{r}
+boxcox <- function(y, lambda) {
+  ifelse(lambda == 0, log(y), (y^lambda - 1)/lambda)
+}
+mejor_lambda <- function(lambdas) {
+  tasas <- vector("numeric", length(lambdas))
+  for (i in seq_along(lambdas)) {
+    l <- lambdas[i]
+    desvios <- df2 %>%
+      mutate(y = map_dbl(sobrevida, boxcox, lambda = l)) %>%
+      group_by(veneno, trt) %>%
+      summarise(desvio = sd(y)) %>%
+      pull("desvio")
+    tasas[i] <- max(desvios)/min(desvios)
+  }
+  return(tibble(l = lambdas,t = tasas))
+}
+
+lambdas <- mejor_lambda(seq(-1.5, 0, 0.01))
+lambdas %>%
+  ggplot(aes(l, t)) +
+  geom_line() +
+  labs(x = expression(lambda), y=expression(paste("max ", sigma, " / min ", sigma)))
+```
+
+Reducir la tasa de desvíos a 3.6 sigue sin ser suficiente para el criterio originalmente autoimpuesto, pero tampoco está demasiado lejos, y es una enorme mejoría respecto a la tasa original de más de 26, así que aplicaremos la transformación de Box-Cox y calificaremos momentáneamente de "tolerable" la heterocedasticidad restante. Lo que sí, para ayudar a la comprensión, en lugar de tomar el óptimo $\lambda^{\star}=-0.87$, tomaremos el mucho más interpretable $\lambda=-1$, que consigue una tasa de desvíos similar (4.12), pero provee una transformación más clara: $g(y) = 1 - \tfrac{1}{y}$, que cuando $y \in (1, + \infty) \Rightarrow g(y) \in (0, 1)$.
+
+Aplicamos la transformación, y volvemos a graficar los perfiles.
+
+```{r}
+lambdas %>%
+  filter(l == 1 | l == 0 | (-0.9 < l & l < -0.8) | l == -1)
+```
+
+Como la variable respuesta $y$ indica la _sobrevida_ de los animales, un procedimiento razonable sería transformarla por el logaritmo natural, de manera que 
+
+Usando el comando `anova` sobre la salida de `lm`, obtenemos fácilmente una tabla con los datos necesarios para testear esta hipótesis. Por un lado, los coeficientes significativos al 5% del modelo multiplicativo ajustado son
+
+```{r}
+mult <- lm(sobrevida ~ veneno * trt, df2)
+tidy(mult) %>%
+  dplyr::select(term, estimate, p.value) %>%
+  filter(p.value <= 0.1) %>%
+  arrange(p.value) %>%
+  knitr::kable(digits = 4)
+```
+
+# No hay entrecruzamientos escandalosos, pareciera que B>D>C>A y I>II>III
+# con un pequenio cruce entre I:D y II:D
+
+
+
+
+
+```{r}
+# venenoIII:trtB es la unica interaccion significativa, pero
+tidy(anova(mult))
+# las interacciones en conjunto no son significativas
+# calcular Mint/Mtrat, esta cerca de 0.1, no sign.
+
+# Paso al modelo aditivo
+adit <- lm(sobrevida ~ veneno + trt, df2)
+tidy(adit) %>%
+  arrange(p.value)
+
+# Analizo las varianzas por blq/trt
+df2var <- df2 %>%
+  group_by(veneno, trt) %>%
+  summarise_all(lst(mean, sd))
+
+grouped_df2 <- group_by(df2, veneno, trt)
+
+
+
+
+df2 <- df2 %>%
+  mutate(y = map_dbl(sobrevida, boxcox, -1))
+
+lm2 <- lm(y ~ veneno + trt, df2)
 summary(lm2)
 anova(lm2)
-lm2 <- lm(sobrevida ~ veneno * trt, juntos2)
-summary(lm2)
-anova(lm2)
 
-juntos2 %>%
-  group_by(veneno, trt) %>%
-  summarise(s_media = mean(sobrevida)) %>%
-  ggplot(aes(trt, s_media, group = veneno, color=veneno)) +
-  geom_line()
+df2 %>%
+  ggplot(aes(veneno, y, color = trt)) +
+  geom_boxplot()
 
-juntos2 %>%
-  group_by(veneno, trt) %>%
-  summarise(s_media = mean(sobrevida)) %>%
-  ggplot(aes(veneno, s_media, group = trt, color=trt)) +
-  geom_line()
+TukeyHSD(aov(sobrevida ~ veneno + trt, df2))
+```
 
-TukeyHSD(aov(sobrevida ~ veneno + trt, juntos2))
+```{r}
 
-
-medias_juntos2 <- juntos2 %>%
-  group_by(veneno, trt) %>%
-  summarise(sobrevida = mean(sobrevida))
-friedman.test(sobrevida ~ trt | veneno, medias_juntos2) %>% str
-TukeyHSD(aov(sobrevida ~ veneno + trt, juntos2))
 # Ejercicio 3
 tipo_cols <- cols(
   substancia = col_factor(),
