@@ -1,0 +1,215 @@
+---
+title: "Taller de Consultoria - TP4"
+author: "Gonzalo Barrera Borla"
+date: "6/10/2019"
+output:
+  pdf_document: default
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+options(tinytex.verbose = TRUE)
+```
+
+# Setup
+```{r}
+library(tidyverse) # manipulación de datos en general, graficos
+library(broom) # limpieza y estructuracion de resultados de regresiones
+library(PMCMRplus) # comparaciones múltiples para tests de rangos
+library(caret) # Validación cruzada para múltiples modelos
+library(gridExtra) # Paginado de gráficos 
+```
+
+# Ejercicio 1
+
+> Se midió el daño al ADN (porcentaje de ADN que se separa durante la electroforesis) en raíces de habas sometidas a 4 tratamientos, aplicados durante diferentes tiempos. Interesa decidir si algún tratamiento es demostrablemente más dañino. Los "-" indican datos no medidos. El tiempo cero para cada uno de los tratamientos puede interpretarse como la cantidad de ADN que está inicialmente dañado, o sea que no es equivalente a "ningún tratamiento". Notar que los resultados son porcentajes, lo que implica heteroscedasticidad.
+
+Comenzamos por analizar la relación entre media y varianza para cada tiempo y tratamiento. Como se ve a continuación, los resultados no son muy alentadores:
+
+```{r}
+tipo_cols <- cols(
+  trt = col_character(),
+  t = col_integer(),
+  p = col_double()
+)
+df1 <- read_csv("../data/4-1.csv")
+
+df1 %>%
+  group_by(trt, t) %>%
+  summarise_all(lst(mean, sd)) %>%
+  arrange(desc(sd)) %>%
+  knitr::kable(
+    digits = 3)
+```
+
+En primer lugar, para el tratamiento IV y $t=20$, la varianza estimada es exactamente 0, por lo que la razón entre la máxima y mínima varianza para todas las combinaciones de bloque y tratamiento está indefinida, y la regla heurística que plantea Seber [1977, p.195] y utilizaramos en el TP3 no se puede uar. Aún descartando esta última observación, para el tratamiento III la varianza estimada es 12.84 en $t=20$ y sólo 0.28 en $t=30$, que arroja una altísima razón de 43.35.
+
+Aún peor, cuando graficamos la varianza estimada en función de la media estimada, no se evidencia ninguna relación, por lo que ni siquiera sabríamos cómo morigerar la heterocedasticidad existente:
+
+```{r}
+df1 %>%
+  group_by(trt, t) %>%
+  summarise_all(lst(mean, sd)) %>%
+  ggplot(aes(mean, sd, shape = factor(t), color = trt)) +
+  geom_point() +
+  labs(title = "Desvío estimado por tratamiento y tiempo", x = "Media",
+       y = "Desvío", shape = "Tiempo", color = "Trat.")
+```
+
+Por el momento, nos bastará con haber notado esta complicación, y avanzaremos con el análisis.
+
+¿Qué modelo puede llegar a representar adecuadamente estos datos? Para contestarnos, comenzamos graficando el porcentaje de ADN dañado en función de $t$ para cada observación, coloreada según el tratamiento. De fondo, agregamos en línea punteada el "perfil" del porcentaje promedio de ADN dañado por tratamiento y tiempo, para distinguir tendencias:
+```{r}
+medias1 <- df1 %>%
+  group_by(t, trt) %>%
+  summarise_all(mean)
+
+df1 %>%
+  ggplot(aes(t, p, color = trt)) +
+  geom_point() +
+  geom_line(data = medias1, linetype = "dashed") +
+  labs(title = "Porcentaje dañado en función del tiempo", x = "Tiempo",
+    y = "Porc.", color = "Trat.")
+
+```
+
+Pareciera que al menos el tratamiento IV se distingue desde el comienzo de los demás, y que el porcentaje de daño es siempre creciente en $t$, a una tasa constante o _tal vez_ decreciente.
+
+Aunque esté medida en pocos valores únicos, la covariable `t` (tiempo) es cuantitativa, y por ende entendemos que es más razonable plantear lo que en la literatura se conoce como un _análisis de la covarianza_ (ANCOVA) de un factor (el tratamiento) con 4 niveles, antes que un modelo de análisis de la covarianza de 2 factores. 
+
+Combinando estas observaciones, planteamos como modelo de referencia
+- (de referencia) un ANOVA de 2 factores,
+- (y como candidatos) 6 modelos "ANCOVA" con un factor (`tratamiento`) sobre
+  - polinomios de grado 1, 2 y 3 en `t`,
+  - con y sin interacciones
+  
+Elegiremos polinomios "crudos" en lugar de los ortogonales por defecto de R para facilitar la comprensión de los coeficientes resultantes.
+
+Si uno ajusta los modelos sobre los datos completos, no importa la métrica elegida, los modelos con más parámetros (ANOVA 2 factores y el cúbico multiplicativo) tienden a ser los que mejor ajustan: con sólo 46 datos, ajustar 16 coeficientes es casi una garantía de éxito.
+
+Para evitar este sesgo hacia mdoelos más complejos, utilizamos el muy recomendable paquete `caret`, que nos permite ajustar modelso con distintas técnicas de resampleo. Para ete ejercicio, optamos por el clásico split entre datos de entrenamiento (70%) y teste (30%), y repetimos el proceso 100 veces. A continuacion, incluimos el error cuadrático medio estimado para cada modelo, y su desvío estándar estimado, para poder seleccionar el "mejor" modelo según la ya discutida regla de un desvío estándar:
+
+```{r}
+formulas <- list(
+  p ~ poly(t, 3, raw = TRUE) * trt,
+  p ~ poly(t, 3, raw = TRUE) + trt,
+  p ~ poly(t, 2, raw = TRUE) * trt,
+  p ~ poly(t, 2, raw = TRUE) + trt,
+  p ~ poly(t, 1, raw = TRUE) * trt,
+  p ~ poly(t, 1, raw = TRUE) + trt,
+  p ~ factor(t) * trt
+)
+
+set.seed(42)
+trCont <- trainControl(method = "LGOCV", number = 100, p = 0.7)
+resumen <- tibble(
+  formula = formulas,
+  train = map(formula, train, method = "lm", data = df1, trControl = trCont)
+) %>%
+  mutate(resultados = map(train, "results")) %>%
+  unnest(resultados) %>%
+  select(-train)
+
+resumen %>%
+  select(formula, RMSE, RMSESD) %>%
+  arrange(RMSE) %>%
+  knitr::kable(col.names = c("Modelo", "ECM", "Desvio"), digits = 2)
+```
+
+Como es de esperar, el modelo cúbico multiplicativo no resiste la validación cruzada. Sin embargo, el modelo que mejor ajusta, aún cuando usando técnicas de validación cruzada, sigue siendo el ANOVA de 2 factores, que cuenta con la mayor libertad posible para adecuarse a los datos (tiene la misma cantidad de coeficientes que el cúbico multiplicativo, pero sin correlación alguna entre las covariables predictoras, que sí tienen $t, t^2, t^3$). Sin embargo, se observa que el desvío estimado para el modelo ANOVA de 2 factores es bastante alto, lo suficiente como para que la regla de 1 SD contenga cómodamente a todos los modelos salvo, justamente el cúbico multiplicativo. En este contexto, nos inclinamos por el modelo más sencillo posible, que es el lineal aditivo. Ajustamos entonces
+
+$$
+p_{ij} = \mu_i + \beta \times t + \epsilon_{ij} \quad \text{con } \epsilon_{ij} \sim N(0, \sigma^2), \: i \in \text{{I, II, III, IV}}, 1 \leq j \leq n_i
+$$
+
+donde $\mu_i$ es la ordenada correspondiente al tratamiento $i$, $t$ es el tiempo de medición y $n_i$ la cantidad de observaciones del i-'esimo tratamiento, _a sabiendas_ de que no hemos podido garantizar todavía la homocedasticidad de los $\epsilon_{ij}$. Los principales estadísticos del modelo, efectos principales y coeficientes del modelo _ajustado con todos los datos_ resultan:
+
+```{r}
+lm1 <- lm(p ~ trt + t, df1)
+
+glance(lm1) %>%
+  transmute(
+    "R^2 aj." = as.character(signif(adj.r.squared, 3)),
+    "F obs." = as.character(signif(statistic, 3)),
+    "P-valor" = as.character(signif(p.value, 3))
+  ) %>%
+  knitr::kable()
+
+tidy(anova(lm1)) %>%
+  transmute(
+    "Coefs" = term,
+    "GL" = df,
+    "C. Medios" = as.character(signif(statistic, 3)),
+    "F obs." = as.character(signif(statistic, 3)),
+    "P-valor" = as.character(signif(p.value, 3))
+  ) %>%
+  knitr::kable()
+
+tidy(lm1) %>%
+  transmute(
+    "Coef." = term,
+    "Estimado" = as.character(signif(estimate, 3)),
+    "P-valor" = as.character(signif(p.value, 3))
+  ) %>%
+  knitr::kable()
+```
+
+Podemos observar que tanto (i) el modelo completo, (ii) los efectos principales del tratamiento y el tiempo y (iii) cada coeficiente individual son significativos con bajísimo p-valor. Revisamos los residuos (absolutos y estudentizados) de las predicciones, para estimar si hemos capturado satisfactoriamente la estructura de los datos, y no observamos nada particularmente alarmante:
+
+```{r}
+df1full <- augment(lm1, data = df1)
+
+df1full %>%
+  ggplot(aes(.fitted, .resid, color = trt, shape = factor(t))) +
+  geom_point() +
+  labs(title = "Residuos en función del valor predicho",
+       subtitle = "No se evidencia estructura aparente",
+       x = "Porcentaje Predicho", y = "Residuo", color = "Trat.", shape = "Tiempo") +
+  theme(legend.position = "bottom")
+
+df1full %>%
+  ggplot(aes(.fitted, .std.resid, color = trt, shape = factor(t))) +
+  geom_point() +
+  labs(title = "Residuos estudentizadosen función del valor predicho",
+       subtitle = "Ningún residuo tiene valor absoluto mayor a 2.5",
+       x = "Porcentaje Predicho", y = "Residuo", color = "Trat.", shape = "Tiempo") +
+  theme(legend.position = "bottom")
+```
+
+A pesar de la evidente heterocedasticidad original de las observaciones, hemos obtenido un ajuste bastante satisfactorio para los datos, con una directa interpretación física. Sabemos que cuando asumimos erróneamente una matriz de covarianza $\sigma^2 I_n$ en lugar de la verdadera $V$, los estimadores de los parámetros del modelo $\hat{\beta}$ son insesgados, pero no los de menor varianza. Así y todo, hemos obtenido unos estimadores indudablemente distintos a cero, con lo cual podemos en principio confiar en ellos, ya que de usar la verdadera matriz de covarianza su significación debería mejorar.
+
+Finalmente, podemos asegurar que
+
+- el porcentaje inicial de ADN dañado varía con el método,
+- pero el avance del daño en el tiempo no varía con el método.
+
+Los modelos ajustados son:
+
+$$
+\begin{split}
+p_{I,j} &= 29.3 + 1.67 \times t + \epsilon_{I,j} \\
+p_{II,j} &= 5.6 + 1.67 \times t + \epsilon_{II,j} \\
+p_{III,j} &= 10.1 + 1.67 \times t + \epsilon_{III,j} \\
+p_{IV,j} &= 66.5 + 1.67 \times t + \epsilon_{IV,j} \\
+\end{split}
+$$
+
+Y los tratamientos, del más al menos dañino, son IV > I > III > II. Concluimos con un gráfico de las funciones ajustadas sobre los datos originales:
+
+```{r}
+grilla <- crossing(
+  trt = c("I", "II", "III", "IV"),
+  t = seq(0, 30, 10)
+)
+
+augment(lm1, newdata = grilla) %>%
+  rename(p = .fitted) %>%
+  ggplot(aes(t, p, color = trt)) +
+  geom_line(linetype = "dashed") +
+  geom_point(data = df1) +
+    labs(title = "Porcentaje dañado predicho en función del tiempo", x = "Tiempo",
+    y = "Porc.", color = "Trat.")
+```
+
+
