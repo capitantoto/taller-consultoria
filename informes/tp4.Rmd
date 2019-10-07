@@ -90,7 +90,7 @@ Si uno ajusta los modelos sobre los datos completos, no importa la métrica eleg
 
 Para evitar este sesgo hacia mdoelos más complejos, utilizamos el muy recomendable paquete `caret`, que nos permite ajustar modelso con distintas técnicas de resampleo. Para ete ejercicio, optamos por el clásico split entre datos de entrenamiento (70%) y teste (30%), y repetimos el proceso 100 veces. A continuacion, incluimos el error cuadrático medio estimado para cada modelo, y su desvío estándar estimado, para poder seleccionar el "mejor" modelo según la ya discutida regla de un desvío estándar:
 
-```{r}
+```{r, cache = TRUE}
 formulas <- list(
   p ~ poly(t, 3, raw = TRUE) * trt,
   p ~ poly(t, 3, raw = TRUE) + trt,
@@ -213,3 +213,103 @@ augment(lm1, newdata = grilla) %>%
 ```
 
 
+# Ejercicio 2
+
+> Se dan los rendimientos de 4 variedades de trigo en 13 localidades de Oklahoma. Interesa determinar qué variedades son  recomendables.
+
+Inmediatamente se observa que no sólo la media de los rendimientos varía considerablemente entre localidades, sino que el rango de rendimientos para cada localidad es sumamente variable:
+```{r}
+tipo_cols <- cols(
+  loc = col_factor(),
+  var = col_factor(),
+  rend = col_double()
+)
+df2 <- read_csv("../data/4-2.csv", col_types = tipo_cols)
+df2 %>%
+  group_by(loc) %>%
+  summarise(
+    delta = max(rend) - min(rend),
+    media = mean(rend)) %>%
+  arrange(desc(delta)) %>%
+  knitr::kable(col.names = c("Loc.", "Rango", "Media"), digits = 2)
+
+df2 %>%
+  group_by(loc) %>%
+  summarise(
+    max = max(rend),
+    avg = mean(rend),
+    min = min(rend)) %>%
+  arrange(avg) %>%
+  ggplot(aes(fct_reorder(loc, avg), avg)) +
+  geom_point() +
+  geom_segment(aes(y = min, yend = max, xend = fct_reorder(loc, avg))) +
+  labs(title = "Media y rango de los rendimientos por localidad",
+       x = "Localidad", y = "Rendimiento")
+```
+
+De lo expuesto resulta improbable que un análisis de la varianza de dos factores "directo" nos provea mucha información útil. En principio, al tener sólo una observación por "celda" (combinación de bloque y tratamiento), sólo podemos plantear un modelo aditivo o con alguna interacción limitada como la que propone Tukey con su invento de "1 grado de libertad para la no-aditividad". En efecto, si ajustamos un modelo del estilo $rinde \sim variedad \: |\: localidad$, tanto la localidad como las variedades parecen sumamente significativas, pero el gráfico de los residuos versus predichos tiene una clara estructura "parabólica":
+
+```{r}
+lm2 <- lm(rend ~ loc + var, df2)
+
+augment(lm2, df2) %>%
+  ggplot(aes(.fitted, .std.resid)) +
+  geom_point() +
+  labs(title = "Residuos en función de rindes predichos para un modelo aditivo",
+       x = "Rinde predicho", y = "Residuo")
+```
+
+Si graficamos los perfiles de rendimiento en función de la localidad, con las localidades ordenadas crecientemente en rendimiento promedio para mejroar la visibilidad, vemos que las variedades de maíces se entremezclan en las localidades de menor rinde, y se separan un poco mejor en las de mayor rinde, aunque todavía con cruzamientos significativos para las variedades 1, 2 y 4.
+
+```{r}
+df2 <- df2 %>%
+  mutate(loc = fct_reorder(loc, rend, mean))
+
+df2 %>%
+  ggplot(aes(loc, rend, color = var, group = var)) +
+  geom_point() +
+  geom_line(linetype = "dashed")
+```
+
+Aquí se nos plantea una disyuntiva: por un lado, podríamos considerar por separado los dos regímenes de ciudades antes mencionados: 
+
+- las de "bajo rinde" (12, 3, 11, 4, 9, y 6) con perfiles muy superpuestos y rangos de valores más "apretados", y
+- las de "alto rinde" (2, 1, 5, 10, 8, 13 y 7), con perfiles mejor separados, y mayores rangos de valores.
+
+Por otra parte, podríamos mantener todas las observaciones juntas, y considerar algún test no paramétrico con pocos supuestos sobre los datos, para ver si podemos obtener alguna conclusión global. En esta línea, surgen naturalmente dos tests para diseños en bloque completos sin replicación: el test de Friedman (análogo al test del signo para varias muestras), y el test de Quade (análogo al test de Wilcoxon de rangos signados). 
+
+Siguiendo a Conover [1999, pp. 369-375], los supuestos necesarios son mínimos. Para ambos se requiere que (i) los bloques sean independientes entre sí y que (ii) las observaciones en cada bloque sean ordenables según algún criterio). Para el test de Quade, se pide además que (iii) los bloques se puedan ordenar por su rango muestral. En estos datos los tres supuestos se cumplen, pero nos inclinaremos por el test de Quade, que entendemos aprovechará mejor la información pertinente a la amplitud de rangos intra-bloques.
+
+En ambos casos, asumimos que si $X_{ij}$ es el rinde de la j-ésima variedad en la i-ésima localidad, $X_{ij} \sim F_i(x-\theta_j), F_i \in \Omega_0 \: \forall \: i\in\{1,\dots,13\}, \: j \in \{1,\dots,4\}$ son todas VA independientes. Es decir que $F_i$ es la distribución de las observaciones del i-ésimo bloque, y dentro del bloque $\theta_j$ es la mediana del j-ésimo tratamiento. La hipótesis nula será $H_0: \theta_i = \theta_j \forall i,j$, y la alternativa su complemente (que al menos dos medianas son distintas).
+
+```{r}
+mat2 <- df2 %>% spread(var, rend) %>% select(2:5) %>% as.matrix
+dimnames(mat2) <- list(1:13, 1:4)
+fried_test <- friedman.test(mat2)
+quade_test <- quade.test(mat2)
+```
+
+Sin demasiada confianza en poder obtener resultados muy significativos, elegimos a priori un nivel de significación $\alpha=0.1$. El test de Quade arroja un p-valor de `r signif(quade_test$p.value, 3)`, que nos lleva a rechazar la hipótesis nula con seguridad. De aplicar el test de Friedman, obtenemos un p-valor de `r signif(fried_test$p.value, 3)`, más moderado pero aún contundente. Resulta tranquilizador saber que aún sin aprovechar la información sobre el rango de los bloques, hubiésemos rechazado la hipótesis nula. 
+
+Hasta aquí sabemos que no todas las variedades tienen el mismo rendimiento, pero aún nos resta saber cuáles son significativamente distintas de las demás. En principio, los rendimientos promedios resultan ser
+
+```{r}
+colMeans(mat2) %>% sort %>% t %>%
+  knitr::kable(digits = 2)
+```
+
+Siguiendo a Conover, al haber rechazado la hipótesis nula, podemos realizar un test de comparaciones múltiples, manteniendo el $\alpha=0.1$ original. Acudimos al paquete `PMCMRplus`, que implementa comparaciones múltiples "post-hoc" para una amplia variedad de tests basados en la suma de rangos medios, y obtenemos los siguientes p-valores:
+
+```{r}
+quade_posthoc <- PMCMRplus::quadeAllPairsTest(mat2)
+quade_posthoc$p.value %>%
+  knitr::kable(digits = 3)
+```
+
+En otras palabras, a nivel $\alpha = 0.1$,
+
+- la variedad 1 es mejor que la 2 y 3, pero no se peude distinguir de la 4,
+- la variedad 4 es mejor que la 3, pero no se puede distinguir de la 2,
+- las variedades 2 y 3 no se pueden distinguir.
+
+De tener que recomendar una sola variedad, y asumiendo que no hay ningún otro factor decisivo (como ser el precio del grano, la dificultad de su cultivo, las leyes locales, et cetera), nos inclinaríamos por la 1. Nótese que de haber elegido un criterio sólo un poco más restrictivo, como ser $\alpha = 0.5$, sólo "la mejor" y "la peor" variedad (1 y 3) se llegan a distinguir entre sí.
