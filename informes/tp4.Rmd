@@ -285,11 +285,11 @@ En ambos casos, asumimos que si $X_{ij}$ es el rinde de la j-ésima variedad en 
 ```{r}
 mat2 <- df2 %>% spread(var, rend) %>% select(2:5) %>% as.matrix
 dimnames(mat2) <- list(1:13, 1:4)
-fried_test <- friedman.test(mat2)
-quade_test <- quade.test(mat2)
+fried2 <- friedman.test(mat2)
+quade2 <- quade.test(mat2)
 ```
 
-Sin demasiada confianza en poder obtener resultados muy significativos, elegimos a priori un nivel de significación $\alpha=0.1$. El test de Quade arroja un p-valor de `r signif(quade_test$p.value, 3)`, que nos lleva a rechazar la hipótesis nula con seguridad. De aplicar el test de Friedman, obtenemos un p-valor de `r signif(fried_test$p.value, 3)`, más moderado pero aún contundente. Resulta tranquilizador saber que aún sin aprovechar la información sobre el rango de los bloques, hubiésemos rechazado la hipótesis nula. 
+Sin demasiada confianza en poder obtener resultados muy significativos, elegimos a priori un nivel de significación $\alpha=0.1$. El test de Quade arroja un p-valor de `r signif(quade2$p.value, 3)`, que nos lleva a rechazar la hipótesis nula con seguridad. De aplicar el test de Friedman, obtenemos un p-valor de `r signif(fried2$p.value, 3)`, más moderado pero aún contundente. Resulta tranquilizador saber que aún sin aprovechar la información sobre el rango de los bloques, hubiésemos rechazado la hipótesis nula. 
 
 Hasta aquí sabemos que no todas las variedades tienen el mismo rendimiento, pero aún nos resta saber cuáles son significativamente distintas de las demás. En principio, los rendimientos promedios resultan ser
 
@@ -313,3 +313,173 @@ En otras palabras, a nivel $\alpha = 0.1$,
 - las variedades 2 y 3 no se pueden distinguir.
 
 De tener que recomendar una sola variedad, y asumiendo que no hay ningún otro factor decisivo (como ser el precio del grano, la dificultad de su cultivo, las leyes locales, et cetera), nos inclinaríamos por la 1. Nótese que de haber elegido un criterio sólo un poco más restrictivo, como ser $\alpha = 0.5$, sólo "la mejor" y "la peor" variedad (1 y 3) se llegan a distinguir entre sí.
+
+# Ejercicio 3
+
+> Se desea comparar los efectos de 4 emulsiones tóxicas para el control de larvas de típula. En cada uno de 6 lotes (“bloques”) se marcaron 6 cuadrados de 90 cm. de lado; en 4 se aplicaron las emulsiones, y 2 quedaron sin tratamiento (para control). En cada bloque, la asignación se hizo al azar. Después de algunos días, se registró la cantidad de larvas sobrevivientes.  Cada cuadrado fue dividido en 9 “cuadraditos” de 30 cm. de lado, y se contaron las larvas en 2 de ellos. El objetivo es determinar cuáles emulsiones son efectivas, y si hay alguna demostrablemente mejor (para eliminar las larvas, no para engordarlas).
+
+Para fijar el diseño experimental, necesitamos decidir (a) qué hacer con los dos tratamientos de control, y (b) cómo tratar a los dos "subbloques" (cuadraditos de 30 cm. de lado) por bloque (cuadrado de 90 cm. de lado) y tratamiento. Comenzamos por graficar los perfiles en orden creciente de larvas promedio por bloque:
+
+```{r}
+tipo_cols <- cols(
+  blq = col_factor(),
+  trt = col_factor(),
+  larvas = col_double()
+)
+df3 <- read_csv("../data/4-3.csv", col_types = tipo_cols) %>%
+    mutate(blq = fct_reorder(as_factor(blq), larvas, mean))
+
+medias <- df3 %>%
+  group_by(blq, trt) %>%
+  summarise_all(mean)
+
+df3 %>%
+  ggplot(aes(blq, larvas, color = trt, group = trt)) +
+  geom_point() +
+  geom_line(data = medias, linetype = "dashed")
+```
+
+En una primera aproximación _inercial_ (en tanto está influida por la metodología del ejercicio anterior), nos lleva a
+- como no contamos con información extra sobre la existencia o no de diferencias entre los controles, y los perfiles no son muy similares, _considerar los dos controles por separado_ y
+- asumiendo que la decisión de contar en sólo 2 de los 9 cuadraditos por bloque fue para ahorrar trabajo, _sumar los dos subbloques_ por celda y considerar una única observación.
+
+Y sin hacer más supuestos sobre las distribuciones, intentar aplicar un test no paramétrico para la diferencia de medianas. Si agrupamos los subbloques y consideramos los rangos y promedios por bloque,
+```{r}
+df3_ <- df3 %>%
+  mutate(blq = fct_reorder(as_factor(blq), larvas, mean)) %>%
+  group_by(blq, trt) %>%
+  summarise_all(sum)
+
+fried3 <- friedman.test(df3_$larvas, df3_$trt, df3_$blq)
+
+df3_ %>%
+  group_by(blq) %>%
+  summarise(
+    delta = max(larvas) - min(larvas),
+    media = mean(larvas)) %>%
+  arrange(desc(delta)) %>%
+  knitr::kable(col.names = c("Blq.", "Rango", "Media"), digits = 2)
+```
+
+observamos que (a) la razón del mayor al menor rango es escasamente mayor a 2 y (b) el rango por bloque aumenta junto con la media. Además, Conover [1977, p. 368] menciona que para seis o más tratamientos, el test de Friedman tiende a tener mayor potencia que Quade, circunstancias por las cuales nos inclinamos a favor del test de Friedman por sobre el de Quade. Aplicado a nuestros datos, arroja un p-valor de `r signif(fried3$p.value, 3)`, suficiente para rechazar la hipótesis nula de la igualdad de medianas, a nivel, por ejemplo, $\alpha = 0.1$. Si luego realizamos un test "post-hoc" de comparaciones múltiples significativas con el mimsmo $\alpha$, obtenemos 
+
+
+```{r}
+fried_posthoc <- PMCMRplus::frdAllPairsConoverTest(df3_$larvas, df3_$trt, df3_$blq)
+fried_posthoc$p.value %>%
+  knitr::kable(digits = 3)
+```
+
+Es decir, que sólo las emulsiones 3 y 4 son significativamente distintas de los controles, y a su vez ninguna de las emulsiones es distinguible de las demás. Recordando el gráfico de perfiles original, estos resultados nos resultan más bien extraños: puede que las emulsiones no se distingan claramente entre sí, pero ¿cómo puede la emulsión 3 ser significativamente distinta de ambos controles y la 2 no, si sus perfiles están básicamente superpuestos?
+
+Pensándolo bien, creeríamos que el problema es autoimpuesto, al usar un test no-paramétrico, para comparar cantidades que están muy cerca entre sí (# de larvas para las emulsiones 2 y 3) contra otras que están muy lejos de ambas (los controles). Diferencias ínfimas entre emulsiones y considerables respecto al control, al pasarlas a la escala de rangos, quedan "emparejadas" en distancias unitarias, y si por azar una emulsión mata alguna larva menos que otra, el p-valor en sus tests de comparaciones múltiples sufrirá más de lo justificado. Para comprobar esta hipótesis, realizamos el mismo test de comparaciones múltiples de antes, pero ordenando los tratamientos siempre igual: Control 1 > Control 2 > Emulsión 1 > Emulsión 2 > Emulsión 3 > Emulsión 4. Los p-valores resultan:
+
+```{r}
+b <- 6
+testme <- matrix(rep(6:1, b), nrow = b, ncol = 6, byrow = T)
+dimnames(testme) <- list(1:b, levels(df3_$trt))
+PMCMRplus::frdAllPairsConoverTest(testme)$p.value %>%
+  knitr::kable(digits = 3)
+```
+
+¡Prácticamente iguales a nuestros resultados! Las dos "mejores" emulsiones (3 y 4) son significativamente distintas de los controles (la emulsión 2 resulta significativamente distinta de un sólo control), y ninguna emulsión es distinguible entre sí. En esta línea, para asegurarse que la emulsión 1 sea significativamente distinta al Control 2, ¡se requerirían 57 bloques perfectamente ordenados! Ante la evidente inadecuación del método planteado a la situación, volvemos a empezar.
+
+Para disminuir la cantidad de comparaciones múltiples a realizar, preferimos fusionar los dos controles en un único tratamiento. Esto pasa de 15 a 10 la cantidad de comparaciones, y además nos permite estimar mejor la varianza del control y "apretar" los intervalos de confianza que lo consideren. Para hacer uso de la información cuantitativa (y no sólo la ordinal como hasta ahora) con un tradicional diseño de ANOVA con 2 factores, debemos suponer normalidad en los datos, y una misma varianza para todas las poblaciones. Comenzamos por revisar la homocedasticidad:
+
+```{r}
+df3 %>%
+  group_by(trt) %>%
+  summarise_at("larvas", lst(mean, sd)) %>%
+  knitr::kable(digits = 2, col.names = c("Trat.", "Media", "Desvio"))
+```
+
+Los desvíos son mas bien disímiles, con lo cual nos convendrá plantear alguna transformación estabilizadora de la varianza. Es razonable aproximar los datos con una expresión de la forma $k - X$, donde $k$ es la cantidad de larvas iniciales, y $X\sim \text{Poisson}(\lambda)$, lo que nos sugiere $g(x)=\sqrt{x}$ como transformación estabilizadora. Despues de esta operación, la tasa del mayor (Control, 1.27) al menor (Emulsión 2, 0.74) desvío resulta ser $\approx 1.72$, lo cual nos parece tolerable. Graficamos los perfiles de los datos transformados, junto con los QQ-plot por tratamiento:
+
+```{r}
+df3 <- df3 %>%
+  mutate(larvas_ = sqrt(larvas))
+
+df3 %>%
+  group_by(trt) %>%
+  summarise_at("larvas_", lst(mean, sd)) %>%
+  knitr::kable(digits = 2, col.names = c("Trat.", "Media", "Desvio"))
+```
+
+
+```{r}
+df3 <- df3 %>%
+  mutate(
+    blq = fct_reorder(as_factor(blq), larvas_, mean),
+    trt = fct_collapse(trt, Control = c("Control_1", "Control_2")))
+
+medias <- df3 %>%
+  group_by(blq, trt) %>%
+  summarise_at("larvas_", mean)
+
+medias %>%
+  ggplot(aes(blq, larvas_, color = trt, group = trt)) +
+  geom_point() +
+  geom_line(data = medias)
+```
+
+```{r}
+df3 %>%
+  ggplot(aes(sample = larvas_, color = trt)) +
+  geom_qq() +
+  geom_qq_line() +
+  facet_wrap(~ trt, scale = "free_y")
+```
+
+Salvo por una observación atípica para la emulsión 4, los datos correspondientes a las 4 emulsiones tiene una distribución aceptablemente similiar a una normal. Para los controles combinados, una distribución normal no parece demasiado adecuada en los extremos, pero tampoco es aberrante, así que por el momento consideramos que los supuestos de normalidad y homocedasticidad se sostienen razonablemente. Ajustamos un modelo de efectos aditivos del estilo $\sqrt{larvas} \sim bloque + emulsión$, y examinamos los resultados:
+
+```{r}
+lm3 <- lm(larvas_ ~ blq + trt, df3)
+
+glance(lm3) %>%
+  transmute(
+    "R^2 aj." = as.character(signif(adj.r.squared, 3)),
+    "F obs." = as.character(signif(statistic, 3)),
+    "P-valor" = as.character(signif(p.value, 3))
+  ) %>%
+  knitr::kable()
+
+tidy(anova(lm3)) %>%
+  transmute(
+    "Coefs" = term,
+    "GL" = df,
+    "C. Medios" = as.character(signif(statistic, 3)),
+    "F obs." = as.character(signif(statistic, 3)),
+    "P-valor" = as.character(signif(p.value, 3))
+  ) %>%
+  knitr::kable()
+
+tidy(lm3) %>%
+  transmute(
+    "Coef." = term,
+    "Estimado" = as.character(signif(estimate, 3)),
+    "P-valor" = as.character(signif(p.value, 3))
+  ) %>%
+  knitr::kable()
+```
+
+Se observa inmediatamente que el modelo produce un buen ajuste, y que el efecto de los tratamiento esindudablemente significativo, tanto conjuntamente como individualmente. El efecto de los bloques es significativo al tradicional nivel del 5%, por lo que hemos decidido conservarlo en el modelo, pero obviar los bloques podría ser una decisión razonable también. Graficando los residuos estudentizados contra las cantidades predichas, no nos encontramos con ninguna estructura remanente, pero sí observamos un par de _outliers_ con residuo mayor a 3 correspondientes al control. Esto era de esperar, ya que como vimos en los QQ-plots por población, el control se alejaba de la normalidad en los extremos. 
+
+```{r}
+df3aug <- augment(lm3, data = df3)
+df3aug %>%
+  ggplot(aes(.fitted, .std.resid, color = trt)) +
+  geom_point()
+```
+
+Consideramos rehacer el análisis sin estas observaciones potencialmente atípicas, pero las mejoras en el $R^2$ ajustado del modelo, y la significatividad de los coeficientes eran más bien menores, por lo cual preferimos mantener el _dataset_ completo. Finalmente, estamos en condiciones de realizar un test de Tukey de comparaciones múltiples _entre tratamientos_, que arroja los siguientes resultados:
+```{r}
+TukeyHSD(aov(lm3), conf.level = 0.05)$trt %>%
+  knitr::kable(digits = 3, col.names = c("Estimado", "Lím. inf. IC", "Lím. sup. IC", "P-valor"))
+```
+
+A nivel 5%, podemos concluir que
+
+- el tratamiento con cualquier emulsión es efectivo para eliminar larvas,
+- la emulsión 1 es significativamete más efectiva que las 3 y 4, pero que la dos.
+
+Mas allá de la significatividad estadística, de tener que decantarse por una única opción, nuestra sugerencia sería usar la emulsión 1.
