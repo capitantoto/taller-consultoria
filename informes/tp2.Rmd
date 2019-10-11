@@ -1,7 +1,7 @@
 ---
 title: "Taller de Consultoria - TP2 - Selección de Modelos"
 author: "Gonzalo Barrera Borla"
-date: "11/09/2019"
+date: "11/10/2019"
 output:
   pdf_document: default
 urlcolor: blue
@@ -13,49 +13,27 @@ options(tinytex.verbose = TRUE)
 library(tidyverse)
 library(broom)
 library(GGally)
+library(caret)
 ```
 
 ## Introducción
 
 En los tres ejercicios de esta práctica se busca
 
-- (a) elegir un modelo $M$ para predecir la variable $y$ a partir de una muestra aleatoria $X$ de un  conjunto de covariables $x_1, x_2, \dots, x_n$, y
-- (b) dar una medida del error de predicción asociado a $\hat{y}=M(X)$.
+- (a) elegir un modelo para predecir la variable $y$ a partir de una muestra aleatoria $X$ de un conjunto de covariables $x_1, x_2, \dots, x_n$, y
+- (b) dar una medida del error de predicción asociado al modelo.
 
-A diferencia del TP1, los tres problemas que ahora nos competen ilustran situaciones tan específicas que comprender la relación entre las covariables sin la ayuda de un técnico en el campo es una tarea vana. La _opacidad_ del conjunto de covariables (que no es una caja negra, pero tampoco es transparente) nos obliga a intentar ajustar _varios_ modelos en cada situación, y elegir el "mejor" entre ellos, según algún criterio de bondad a definir. Un poco más formalmente,
+A diferencia del TP1, los tres problemas que ahora nos competen ilustran situaciones tan específicas que comprender la relación entre las covariables sin la ayuda de un técnico en el campo es una tarea vana. La _opacidad_ del conjunto de covariables (que no es una caja negra, pero tampoco es transparente) nos obliga a intentar ajustar varios modelos en cada situación, y elegir el "mejor" entre ellos, según algún criterio de bondad a definir. Luego, en cada ejercicio intentaremos encontrar el "mejor modelo lineal", siguiendo el mismo procedimiento:
 
-Sean $M_j: \mathbb{R}^{n \times p} \rightarrow {\mathbb{R}}$ la transformación de $X$ en $y$ que representa al j-ésimo modelo, $\omega_j$.  Definamos además la _predicción_ $\hat{y}^j=M_j(x_1, \dots,x_n)$, el _error de predicción_ $ep_j=y-\hat{y}^j$ correspondiente a una nueva observación $(y_0, \mathrm{x}_0)$ y la complejidad $c_j$ del modelo $\omega_j$. Diremos que $\omega_k$ es _más preciso_ que $\omega_l$ sí y sólo si $ep_k < ep_l$, y  que es _más simple_ sii $c_k < c_l$.
+1. **Detección de Outliers**: asumiendo que los datos tiene distribución normal multivariada, la distancia de Mahalanobis a la media poblacional de cada observación $(\mathrm{x}_i-\mu)' \Sigma^{-1} (\mathrm{x}_i-\mu) \sim \chi^2_p$. Computaremos un estimador robusto de la dispersión y locación muestral usando `RobStatTM::covRob` y en un QQ-plot veremos cuáles de las distancias de Mahalanobis Robustas se alejan significativamente de una distribución $\chi^2_p$. Dichas observaciones serán consideradas _outliers_, y se repetirá iterativamente este mismo análisis dejándolas afuera, hasta no encontrar más outliers.
 
-Si además hacemos el tradicional supuesto de que las observaciones son realizaciones independientes de un mismo proceso generador de datos (DGP, por sus siglas en inglés), es razonable interpretar al error de predicción $ep_j$ como una variable aleatoria a estimar empíricamente. Por conveniencia y tradición, intentaremos estimar el _error cuadrático medio_ correspondiente a cada modelo, que no es otra cosa que $\mathbb{E}(ep_j^2)$, con un criterio de "validación cruzada deje-uno-fuera" (LOOCV, en inglés).
+2. **Selección de Modelos**: Con el dataset despojado de outliers, compararemos varios modelos posibles entre sí, utilizando como criterio de bondad el ECM de predicción por "validación cruzada deje-uno-fuera" (LOOCV, por sus siglas en inglés). Para evitar el sobreajuste a los datos, utilizaremos la empíricamente eficiente "Regla de 1 Desvío Estándar". Cconsideraremos que el "mejor modelo" no es el que tenga el menor ECM, sino aquél de menor complejidad (_id est_, con menor cantidad de regresores) con un ECM no más de 1DE por encima del mínimo ECM en términos absolutos.
 
-Para ello, para cada uno de los $m$ modelos $\omega_j$ y las $n$ observaciones $\mathrm{x}_i$, estimaremos $n$ veces los coeficientes de $\omega_j$, _dejando afuera_ una observación cada vez, y usaremos el modelo así ajustado para predecir el valor correspondiente a la observación que dejamos afuera. A riesgo de sobrecargar los índices, llamaremos a esta estimación $\hat{y}^{j(i)}$, y los estimadores de la media y varianza de $ep_j^2$ serán, naturalemnte:
+3. **Análisis de residuos**: Elegido el mejor modelo según la R1DE, revisaremos los residuos de predicción para comprobar que (a) no posean ninguna estructura obvia y (b) sean aproximadamente normales. De violarse severamente alguno de estos supuestos, se lo descartará y volveremos a la etapa de selección de modelos.
 
-$$
-\begin{split}
-\hat{\mu}_j &= \widehat{\mathbb{E}(ep_j^2)} = n^{-1}\sum_{i=1}^n \left(y_i-\hat{y}^{j(i)}_i\right)^2 \\
-\hat{\sigma}^2_j &= \widehat{\mathbb{V}(ep_j^2)} = (n-1)^{-1}\sum_{i=1}^n \left[\left(y_i-\hat{y}^{j(i)}_i\right)^2 - \hat{\mu}_j \right]^2 \\
-\end{split}
-$$
+Armados de un criterio sólido de selección de modelos, a continuación hacemos sólo una breve sinopsis de los resultados obtenidos aplicando el mismo criterio a cada problema sin detenernos demasiado en ninguno. El lector avieso notará que los conjuntos de modelos sobre los cuales elegiremos "el mejor" o "el más parsimonioso" distan de ser exhaustivos. Esto es adrede, ya que cualquier enumeración completa de los modelos es una quimera, y estamos realizando este ejercicio casi a modo ilustrativo. En la vida real, sería irresponsable ofrecer un modelo así elegido, sin entender a fondo las covariables involucradas.
 
-Como toda estimación de una variable aleatoria, $\hat{\mu}_j$ está sujeta a cierta incertidumbre, y tomar como criterio de selección del modelo óptimo $\omega^{\star} = \{\omega_j : j = \mathrm{argmin}_{j \in \{1,\dots,m\}} \: \hat{\mu}_j\}$ no es equivalente a elegir  $\omega^{\star} = \{\omega_j : j = \mathrm{argmin}_{j \in \{1,\dots,m\}} \: {ep_j}^2\}$. Si un modelo $\omega_k$ es más complejo que otro $\omega_l$ ($c_k > c_l$) pero tiene indudablemente menor error de predicción  ($ep_k << ep_l$), preferiremos $\omega_k$. Sin embargo, cuando la diferencia entre errores
-no es tan concluyente, un criterio de parsimonia _alla_ "Navaja de Occam" inclinaría la balanza a favor de $\omega_l$. En esta línea argumental, seguiremos la _regla de 1 desvío estándar_ y si $\omega^{ep}=\{\omega_j : j = \mathrm{argmin}_{j \in \{1,\dots,m\}} \: \hat{\mu}_j\}$ es el modelo que minimiza el estimador de $ep^2$, el modelo óptimo será el que minimice la complejidad, dentro de los que están a menos de un desvío estándar de $\hat{\mu}_{ep}$,
-
-$$
-\omega^{\star} = \{\omega_j : c_j\leq c_{ep} \land  \hat{\mu}_j \leq \hat{\mu}_{ep} + \hat{\sigma}_{ep} \}
-$$
-
-Si limitamos la selección de modelos a la familia de _modelos lineales_, $\Omega_L$, una medida razonable de la complejidad de un modelo será la cantidad de coeficientes que ajuste, e irá entre su mínimo en 1 (el modelo basado únicamente en la media global, o los modelos basados en una sola transformación de las covariables y sin ordenada), hasta potencialmente infinito. Nótese además que siempre que $n >p,\: c_j=\#\{\text{coeficientes }\omega_j\}= \mathrm{rg}(\mathrm{H}_j)$, el rango de la matriz de proyección asociada al modelo.
-
-Armados de un criterio sólido de selección de modelos, a continuación hacemos sólo una breve sinopsis de los resultados obtenidos aplicando el mismo criterio a cada problema sin detenernos demasiado en ninguno. Cuando sea posible discutiremos la especificidad de las covariables que comprendamos, y justificaremos someramente los modelos a comparar. Ya que encontrar $\omega^{ep}$ es prerrequisito para encontrar $\omega^{\star}$, en general comentaremos sobre ambos modelos un poco más.
-
-El lector avieso notará que los conjuntos de modelos sobre los cuales elegiremos "el mejor" o "el más parsimonioso" distan de ser exhaustivos. Esto es adrede, ya que cualquier enumeración completa de los modelos es una quimera, y estamos realizando este ejercicio casi a modo ilustrativo. En la vida real, sería irresponsable ofrecer un modelo así elegido, sin entender a fondo las covariables involucradas.
-
-Por último, unas palabras sobre la precisión de la predicción. Una métrica razonable y barata de calcular, ya que hemos hecho todo este trabajo y $\hat{\mu}_j$ es el estimador del cuadrado del error, será $\sqrt{\hat{\mu}_j}$, o si se prefiere una tasa, $\sqrt{\hat{\mu}_j} / \bar{y}$. Sin embargo, asumir que estas medidas son sinónimos con el verdadero error de predicción $ep_j=y_0-\hat{y}^j_0$ o su razón $ep_j/\mathbb{E(y)}$ sería un error. Sin mayor justificación que su intuitividad, usaremos como medida de precisión para e modelo $\omega_j$, el promedio de los desvíos absolutos entre las predicciones de LOOCV y los verdaderos valores, que llamaremos $\rho_j$:
-
-$$
-\rho_j = n^{-1}\sum_i\frac{\left|y_i-\hat{y}^{j(i)}_i\right|}{y_i}
-$$
-
+Por último, unas palabras sobre la precisión de la predicción. Al usar LOOCV como método de validación, es natural reportar la raíz del ECM como medida de precisión, que está en la misma escala que la variable a predecir $y$.Sin embargo, asumir que estas medidas son sinónimos con el verdadero error de predicción sería un error, y la justificación de su uso es más bien intuitiva y por comodidad.
 
 ```{r metodos}
 loocv <- function(formula, data) {
@@ -69,16 +47,14 @@ loocv <- function(formula, data) {
 }
 
 sqdif <- function(x, y) { (x-y)^2 }
-rho <- function(yhat, y) { mean(abs(y - yhat) / y) }
-resumen <- function(data, ycol, modelos) {
+resumir <- function(data, ycol, modelos) {
   y <- data[[ycol]]
   enframe(modelos, name = "nombre", value = "formula") %>%
   mutate(
     loocv_preds = map(formula, loocv, data),
     sqerrs = map(loocv_preds, sqdif, y),
     msehat = map_dbl(sqerrs, mean),
-    msehatvar = map_dbl(sqerrs, var),
-    rhohat = map_dbl(loocv_preds, rho, y))
+    msehatvar = map_dbl(sqerrs, var))
 }
 
 imprimir_resumen <- function(res) {
@@ -86,10 +62,11 @@ imprimir_resumen <- function(res) {
   transmute(
     modelo = map_chr(formula, deparse),
     ec = signif(msehat, 4),
-    desvio = signif(sqrt(msehatvar), 4),
-    precision = signif(rhohat, 4)) %>%
+    desvio = signif(sqrt(msehatvar), 4))%>%
   arrange(ec) %>%
-  knitr::kable()
+  knitr::kable(
+    col.names = c("Modelo", "ECM", "Desvío")
+  )
 }
 ```
 
@@ -139,8 +116,18 @@ modelos1 <- list(
   V_mas_tipo = R ~ V + tipo
 )
 
-res1 <- resumen(df1, "R", modelos1)
+res1 <- resumir(df1, "R", modelos1)
 imprimir_resumen(res1)
+
+set.seed(42)
+trCont1 <- trainControl(method = "LGOCV", number = 100, p = 0.7)
+resumen1 <- tibble(
+  formula = modelos1,
+  train = map(formula, train, method = "lm", data = df1, trControl = trCont)
+) %>%
+  mutate(resultados = map(train, "results")) %>%
+  unnest(resultados) %>%
+  select(-train)
 ```
 
 Resulta entonce que $\omega^{ep}:= R \sim tipo + A + P + G + V$, con complejidad $c_{ep}= 6$ (si consideramos a las 9 dummies de $tipo$ como una sola) o $c_{ep}=14$ (si somos estrictos con la definición, pero dentro de un desvío estándar de $\hat{\mu}_{ep}$ encontramos $\omega^{\star} := R \sim A + V$, con prácticamente la misma precisión (~16%), un error $\hat{\mu}_{\star}$ muy similar, pero mucha menor complejidad, $c_{\star}=3$.
@@ -182,17 +169,47 @@ modelos2 <- list(
   X1X2 = Y ~ X1 + X2,
   X1X3 = Y ~ X1 + X3,
   X2X3 = Y ~ X2 + X3,
+  X1yX2 = Y ~ X1:X2,
   X1 = Y ~ X1,
   X2 = Y ~ X2,
   X3 = Y ~ X3,
-  cte = Y ~ 1,
+#  cte = Y ~ 1,
   sindia = Y ~ X1 + X2 + X3,
   cuadratico = Y ~ (X1 + X2 + X3)^2,
   cubico = Y ~ (X1 + X2 + X3)^3
 )
 
-res2 <- resumen(df2, "Y", modelos2)
+res2 <- resumir(df2_, "Y", modelos2)
 imprimir_resumen(res2)
+trCont2 <- trainControl(method = "LGOCV", number = 20, p = 0.7)
+set.seed(42)
+resumen2 <- tibble(
+  formula = modelos2,
+  train = map(formula, train, method = "lm", data = df2, trControl = trCont2)
+) %>%
+  mutate(resultados = map(train, "results")) %>%
+  unnest(resultados) %>%
+  select(-train)
+
+set.seed(42)
+resumen2_ <- tibble(
+  formula = modelos2,
+  train = map(formula, train, method = "lm", data = df2_, trControl = trCont2)
+) %>%
+  mutate(resultados = map(train, "results")) %>%
+  unnest(resultados) %>%
+  select(-train)
+
+trCont2 <- trainControl(method = "LOOCV")
+set.seed(42)
+resumen2_t <- tibble(
+  formula = modelos2,
+  train = map(formula, train, method = "lm", data = df2_, trControl = trCont2)
+) %>%
+  mutate(resultados = map(train, "results")) %>%
+  unnest(resultados) %>%
+  select(-train)
+
 ```
 
 Curiosamente, $\omega_{ep} := Y \sim dia + X_1 + X_2 + X_3$, con un $\hat{\mu}$ ligeramente mejor que el mismo modelo, sin día. En otras palabras, pareciera ser que _algo_ de información está codificada en esa secuencia, pero incluirla en el modelo sabiendo tan poco es un tanto irresponsable.
@@ -204,16 +221,26 @@ Al igual que antes, graficamos los residuos contra los valores reales para compr
 res2 %>%
   select(nombre, loocv_preds) %>%
   filter(nombre == "X1") %>%
-  mutate(y = list(df2$Y)) %>%
+  mutate(y = list(df2_$Y)) %>%
   unnest() %>%
   mutate(r = y - loocv_preds) %>%
   group_by(nombre) %>%
   mutate(desvio = sd(r)) %>%
-  ggplot(aes(y, r)) +
+  ggplot(aes(loocv_preds, r)) +
   geom_point() +
   geom_hline(mapping = aes(yintercept = -2.5*desvio), alpha=0.5) +
   geom_hline(mapping = aes(yintercept = 0), alpha=0.5) +
   geom_hline(mapping = aes(yintercept = 2.5*desvio), alpha=0.5)
+res2 %>%
+  select(nombre, loocv_preds) %>%
+  filter(nombre == "X1") %>%
+  mutate(y = list(df2_$Y)) %>%
+  unnest() %>%
+  mutate(r = y - loocv_preds) %>%
+  ggplot(aes(sample = r)) +
+  geom_qq() +
+  geom_qq_line()
+
 ```
 
 Para entender un poco mejor qué estamos viendo, recurrimos a `GGally::ggpairs`, que realiza una cómoda visualización del los _scatter plots_ de cada par de variables de interés, en este caso, $(X_1, X_2, X_3, Y)$:
@@ -229,12 +256,12 @@ res2 %>%
   transmute(
     nombre = map_chr(formula, deparse),
     loocv_preds) %>%
-  mutate(y = list(df2$Y)) %>%
+  mutate(y = list(df2_$Y)) %>%
   unnest() %>%
   mutate(r = y - loocv_preds) %>%
   group_by(nombre) %>%
   mutate(desvio = sd(r)) %>%
-  ggplot(aes(y, r)) +
+  ggplot(aes(loocv_preds, r)) +
   geom_point() +
   geom_hline(mapping = aes(yintercept = -2.5*desvio), alpha=0.5) +
   geom_hline(mapping = aes(yintercept = 0), alpha=0.5) +
@@ -283,7 +310,7 @@ modelos3 <- list(
   L4 = Y ~ L4
 )
 
-res3 <- resumen(df3, "Y", modelos3)
+res3 <- resumir(df3, "Y", modelos3)
 imprimir_resumen(res3)
 ```
 
