@@ -71,10 +71,10 @@ imprimir_resumen <- function(res, n = nrow(res)) {
   )
 }
 
-computar_distancias <- function(.data, vars, tol = 1) {
+computar_distancias <- function(data, vars, tol = 1) {
   p <- length(vars)
-  n <- nrow(.data)
-  covrob <- covRob(.data[,vars])
+  n <- nrow(data)
+  covrob <- covRob(data[,vars])
   .data %>%
     mutate(robdist = covrob$dist) %>%
     arrange(robdist) %>%
@@ -83,18 +83,18 @@ computar_distancias <- function(.data, vars, tol = 1) {
       outlier = abs(robdist - espdist)/espdist > tol)
 }
 
-qq_dists <- function(.data, vars, tol = 1) {
+qq_dists <- function(data, vars, tol = 1) {
   p <- length(vars)
-  if (!"id" %in% names(.data)) {
-    .data <- rowid_to_column(.data, "id")
+  if (!"id" %in% names(data)) {
+    data <- rowid_to_column(data, "id")
   }
-  .data <- computar_distancias(.data, vars, tol = tol)
-  .data %>%
+  data <- computar_distancias(data, vars, tol = tol)
+  data %>%
     ggplot(aes(espdist, robdist, label = id)) +
     geom_qq_line(aes(sample = robdist), linetype = "dotted",
                  distribution = qchisq, dparams = list(df = p)) +
     geom_point() +
-    geom_label(data = filter(.data, outlier)) +
+    geom_label(data = filter(data, outlier)) +
     labs(title = paste0("QQ-plot para las distancias de Mahalanobis robustas, p = ", p),
          y = "Distancia Robusta Muestral", x = "Cuantil esperado")
 }
@@ -106,31 +106,24 @@ La definición de las covariables en el ejercicio tiene algunas particularidades
 
 Como el enunciado pide predecir R en función de G, P, A y V, ignoraremos las variables "tipo" y "corrida", que entendemos son desconocidas al momento de predecir.
 
-<!-- ### Detección de Outliers -->
-
-<!-- Lamentablemente, la matriz de covarianza robusta entre todas las variables de interés (G, P, A, V y R) resulta singular, probablemente a causa de los valores repetidos de las tuplas (G, P, A). En su defecto, calcularemos la covrianza robusta para las 4 variables G, P, V, R: los resultados son muy similares si se usan (G, A, V, R) o (P, A, V, R). No se observan grandes desvíos de la distribución $\chi^2_4$ esperada, así que proseguimos el análisis con todos los datos. -->
-
-<!-- ```{r ej1} -->
-<!-- tipo_cols <-  cols( -->
-<!--   tipo = col_factor(), -->
-<!--   corrida = col_integer(), -->
-<!--   G = col_double(), -->
-<!--   P = col_double(), -->
-<!--   A = col_double(), -->
-<!--   V = col_integer(), -->
-<!--   R = col_double() -->
-<!-- ) -->
-
-<!-- df1 <- read_csv("../data/2-1.csv", col_types = tipo_cols) %>% -->
-<!--   rowid_to_column("id") -->
-
-<!-- qq_dists(df1, c("G", "P", "V", "R"), tol = 1.5) -->
-<!-- ``` -->
-
 ### Selección de Modelo
 
 A continuación, presentamos en forma de tabla el ECM de LOOCV (y su desvio) para los mejores de entre una selección arbitratria de modelos posibles, que incluye todos los modelos aditivos y multiplicativos de 2, 3 y 4 covariables:
+
 ```{r ej1}
+tipo_cols <-  cols(
+  tipo = col_factor(),
+  corrida = col_integer(),
+  G = col_double(),
+  P = col_double(),
+  A = col_double(),
+  V = col_integer(),
+  R = col_double()
+)
+
+df1 <- read_csv("../data/2-1.csv", col_types = tipo_cols) %>%
+  rowid_to_column("id")
+
 modelos1 <- list(
   APGV = R ~ A + P + G + V,
   mAPGV = R ~ A * P * G * V,
@@ -183,14 +176,10 @@ df1 %>%
   labs(title = "Residuos estudentizados en función del valor predicho",
        x = "Rendimiento Predicho", y = "Residuo")
 
-ggplot(df1, aes(sample = .resid)) +
-  geom_qq() +
-  geom_qq_line() +
-  labs(title = "QQ-plot de los residuos de predicción",
-       y = "Residuo", x = "Cuantil teórico")
+plot(lm1, which = 2, id.n = 5)
 ```
 
-No se observa estructura evidente ni valores extremos de los residuos estudentizados al graficarlos contra predichos. Tampoco hay grandes alejamientos de la normalidad en el QQ-plot, así que confirmamos la selección previa. Finalmente, reportamos los principales estadísticos del modelo $R \sim A + V$ junto con los valores de sus coeficientes:
+No se observa estructura evidente ni valores extremos de los residuos estudentizados al graficarlos contra predichos. Tampoco hay grandes alejamientos de la normalidad en el QQ-plot, así que confirmamos la selección previa (consideramos remover la observación #10, pero la elección de modelo y los resultados finales eran idénticos). Finalmente, reportamos los principales estadísticos del modelo $R \sim A + V$ ajustado _con todas las observaciones_ junto con los valores de sus coeficientes:
 
 ```{r}
 glance(lm1) %>%
@@ -210,13 +199,15 @@ tidy(lm1) %>%
   knitr::kable()
 ```
 
+Vale la pena recordar que los p-valores y distintos estadísticos presentados no se pueden tomar literalmente, ya que su interpretación natural ha quedado invalidada por el proceso de selección de modelos. A lo sumo, constituyen una medida informal de la bondad del ajuste propuesto, para los datos observados.
+
 ## Ejercicio 2
 
 Si las variables del ejercicio 1 estaban curiosamente definidas, estas dan aún más lugar para la imaginación: un "flujo de aire" $X_1$ en unidades desconocidas, una concentración de ácido $X_3$ en porcentaje (¿de qué? ¿de los reactivos totales? ¿por qué no se usará el pH?), y una pérdida también en unidades desconocidas. Como especifica el ejercicio, excluimos la variable $dia$ de (casi) todos los modelos a comparar.
 
 ### Detección de Outliers
 
-```{r ej2}
+```{r}
 tipo_cols <- cols(
   dia = col_integer(),
   X1 = col_integer(),
@@ -229,23 +220,11 @@ df2 <- read_csv("../data/2-2.csv", col_types = tipo_cols) %>%
 ```
 
 
-# ```{r ej2}
-# vars2 <- c("X1", "X2", "X3", "Y")
-# qq_dists(df2, vars2, tol = 2)
-# ```
-# 
-# Aquí se nota claramente que las observaciones 1, 2, 3, 4 y 21 tienen distancias robustas mucho más extremas de las que uno esperaría para una muestra de este tamaño. Para darnos una idea de a qué puede deberse una discrepancia tan considerable, realizamos los gráficos de dispersión para cada par de variables junto con la estimación de la densidad empírica para cada una, coloreando en celeste los potenciales outliers detectados.
-# 
-# ```{r}
-# df2$outlier <- df2$id %in% c(1:4, 21)
-# ggpairs(df2, columns = vars2, mapping = aes(color = outlier),
-#         upper = list(continuous = "points"), lower = list(continuous = "blank"))
-# ```
 
 ### Selección de Modelo
 
 Consideramos los modelos aditivos y multiplicativos para 2 y 3 variables, además de todos los modelos de 1 sola covariable basados en (a) una variable original, (b) la interacción de algunas de ellas o (c) el cuadrado o cubo de alguna de ellas. Los ECM estimados por LOOCV para los 10 mejores modelos resultan ser:
-```{r ej2}
+```{r_modelos}
 modelos2 <- list(
   cte = Y ~ 1,
   X1X2 = Y ~ X1 + X2,
@@ -281,42 +260,9 @@ Casualmente, el modelo de menor ECM es también uno de mínima complejidad (el m
 
 ### Análisis de residuos
 
-
-# ```{r ej2}
-# trCont2 <- trainControl(method = "LGOCV", number = 20, p = 0.7)
-# set.seed(42)
-# resumen2 <- tibble(
-#   formula = modelos2,
-#   train = map(formula, train, method = "lm", data = df2, trControl = trCont2)
-# ) %>%
-#   mutate(resultados = map(train, "results")) %>%
-#   unnest(resultados) %>%
-#   select(-train)
-# 
-# set.seed(42)
-# resumen2_ <- tibble(
-#   formula = modelos2,
-#   train = map(formula, train, method = "lm", data = df2_, trControl = trCont2)
-# ) %>%
-#   mutate(resultados = map(train, "results")) %>%
-#   unnest(resultados) %>%
-#   select(-train)
-# 
-# trCont2 <- trainControl(method = "LOOCV")
-# set.seed(42)
-# resumen2_t <- tibble(
-#   formula = modelos2,
-#   train = map(formula, train, method = "lm", data = df2_, trControl = trCont2)
-# ) %>%
-#   mutate(resultados = map(train, "results")) %>%
-#   unnest(resultados) %>%
-#   select(-train)
-# ```
-
-```{r ej2}
+```{r}
 lm2 <- lm(Y ~ X1:X2, df2)
-df2 <- augment(lm2, df2)
-df2 %>%
+augment(lm2, df2) %>%
   ggplot(aes(.fitted, .std.resid)) +
   geom_point() +
   labs(title = "Residuos estudentizados en función del valor predicho",
@@ -325,17 +271,35 @@ df2 %>%
 
 Esta vez, sí observamos cierta estructura en los residuos (que parecieran formas dos "clusters"), pero ninguna tendencia obvia. Si realizamos el mismo gráfico para otros modelos al azar, se nota esta misma seudo-agrupación, así que por el momento no hacemos nada más.
 
-```{r ej2}
-ggplot(df2, aes(sample = .resid)) +
-  geom_qq() +
-  geom_qq_line() +
-  labs(title = "QQ-plot de los residuos de predicción",
-       y = "Residuo", x = "Cuantil teórico")
+```{r}
+plot(lm2, which = 2, id.n = 5, labels.id = df2$"id")
 ```
 
-La buena noticia, es que salvo un ligero desvío para las observaciones con máximo y mínimo residuo, el QQ-plot luce razonable, así que damos por aceptable el análisis de residuos.
+Aquí, observamos cierto alejamiento de la normalidad para los residuos de predicción en algunas observaciones. Para asegurarnos de no haber sesgado la elección de modelo por estos valores extremos, removemos la observación más alejada de la recta cuantil-cuantil (#21) y rankeamos todos los modelos nuevamente por LOOCV. 
+ Esto hace que el modelo con el menor ECM absoluto pase a ser $Y \sim X_1 + X_2$, pero $Y \sim X_1\times X_2$ sigue siendo el mejor modelo según la R1DE. Cuando volvemos a graficar los residuos del modelo ajustado sin la observación 21, vemos que la observación #9 sigue estando bastante alejada de la recta cuantil-cuantil:
+ 
+```{r}
+outs <- c(21)
+lm2.2 <- lm(Y ~ X1:X2, df2[-outs,])
+plot(lm2.2, which = 2, id.n = 5, labels.id = df2[-outs,]$id)
+```
 
-Al igual que antes, concluimos con los estadísticos principales y coeficientes para el modelo elegido, $Y \sim X_1 \times X_2$
+Repetimos este proceso iterativamente, eliminando primero la observación #9, y luego la #7. En ambos casos, $Y \sim X_1 + X_2$, resulta ser el modelo con menor ECM de LOOCV absoluto, e $Y \sim X_1\times X_2$ sigue siendo el mejor modelo según la R1DE. Sin las observaciones $(21, 9, 7)$, el scatterplot de residuos y la recta cuantil-cuantil no muestran mayores irregularidades:
+
+```{r}
+outs <- c(21, 9, 7)
+lm2.2 <- lm(Y ~ X1:X2, df2[-outs,])
+
+augment(lm2.2, df2[-outs,]) %>%
+  ggplot(aes(.fitted, .std.resid)) +
+  geom_point() +
+  labs(title = "Residuos estudentizados en función del valor predicho",
+       x = "Pérdida Predicha", y = "Residuo est.")
+
+plot(lm2.2, which = 2, id.n = 5, labels.id = df2[-outs,]$id)
+```
+
+Cuando comparamos tanto los estadísticos globales como los coeficientes particulares del modelo ajustado con y sin las observaciones $(21, 9, 7)$, observamos una sutil mejora en el $R^2_{aj}$, pero coeficientes iguales hasta el cuarto decimal en ambos casos. Haciendo la misma salvedad sobre la interpretabilidad de los p-valores, a continuación reportamos los resultados del modelo ajustado _con todas las observaciones_ para el modelo elegido, $Y \sim X_1 \times X_2$:
 
 ```{r}
 glance(lm2) %>%
@@ -355,6 +319,7 @@ tidy(lm2) %>%
   knitr::kable()
 ```
 
+
 ## Ejercicio 3
 
 Investigando en la Internet, descubrimos que efectivamente, la espectroscopía del espectro infrarrojo cercano (NIR, por sus siglas en inglés) se utiliza en agricultura [4] para medir la calidad de distintos cultivos y suelos, ya que es un método no-invasivo y relativamente barato. El "estándar dorado", sin embargo, para medir el contenido de nitrógeno en sustancias orgánicas, e indirectamente el contenido proteico de las mismas, es el método de Kjeldahl [5]. Vale aclarar que ambos métodos son formas indirectas de medir la cantidad de proteína en una muestra, y por lo tanto son susceptibles a manipulaciones. En un incidente particularmente cruento [6], en 2008 más de 54,000 bebés fueron hospitalizados y al menos 12 murieron por cálculos renales o insuficiencia proteica cuando varias marcas de leche en polvo adulteraron sus productos con melamina, un químico compuesto en 67% m/m por nitrógeno, más conocido como la materia prima para los revestimientos de fórmica. Esta anécdota ilustra que hacer inferencia sobre cierto soporte de los datos (muestras de calibración) y luego aplicar los resultados obtenidos a muestras por fuera de ese dominio (leche adulterada), no garantiza resultados válidos. 
@@ -373,7 +338,8 @@ tipo_cols <- cols(
   L5 = col_integer(),
   L6 = col_integer()
 )
-df3 <- read_csv("../data/2-3.csv", col_types = tipo_cols)
+df3 <- read_csv("../data/2-3.csv", col_types = tipo_cols) %>%
+  rowid_to_column("id")
 
 modelos3 <- list(
   sinmuestra = Y ~ L1 + L2 + L3 + L4 + L5 + L6,
@@ -402,31 +368,38 @@ En principio, el mejor modelo "absoluto" es $\omega_{abs} := Y \sim L_3 + L_4 + 
 
 Como siempre, graficamos los residuos para estudiar cualquier estructura remanente.
 
-```{r ej2}
+```{r}
 lm3 <- lm(Y ~ L3 + L4, df3)
-df3 <- augment(lm3, df3)
-df3 %>%
-  ggplot(aes(.fitted, .std.resid)) +
+augment(lm3, df3) %>%
+  ggplot(aes(.fitted, .std.resid, label = id)) +
   geom_point() +
+  geom_label(data = ~filter(., abs(.std.resid) > 2)) +
   labs(title = "Residuos estudentizados en función del valor predicho",
        x = "Pérdida Predicha", y = "Residuo est.")
 ```
 
-Esta vez, sí observamos cierta estructura en los residuos (que parecieran formas dos "clusters"), pero ninguna tendencia obvia. Si realizamos el mismo gráfico para otros modelos al azar, se nota esta misma seudo-agrupación, así que por el momento no hacemos nada más.
+Esta vez, sí observamos cierta estructura en los residuos (que parecieran formas dos "clusters") y un potencial candidato a outlier en la obs. #18, pero ninguna tendencia obvia. Si realizamos el mismo gráfico para otros modelos al azar, se nota esta misma seudo-agrupación, así que por el momento no hacemos nada más.
 
-```{r ej2}
-qq3 <- ggplot(df3, aes(sample = .resid)) +
-  geom_qq() +
-  geom_qq_line() +
-  labs(title = "QQ-plot de los residuos de predicción",
-       y = "Residuo", x = "Cuantil teórico")
-
-ggplot_build(qq3)
+```{r}
+plot(lm3, which = 2, id.n = 5)
+outs <- c(18, 19, 8, 7, 9)
+res3 <- resumir(df3[-outs,], "Y", modelos3)
+imprimir_resumen(res3)
+lm3.2 <- lm(Y ~ L3 + L4, df3[-outs,])
+plot(lm3.2, which = 2, id.n = 3, labels.id = df3[-outs,]$id)
+map_df(lst(lm3, lm3.2), tidy)
 ```
 
-La buena noticia, es que salvo un ligero desvío para las observaciones con máximo y mínimo residuo, el QQ-plot luce razonable, así que damos por aceptable el análisis de residuos.
+En el QQ-plot de los residuos, seulta evidente que algunas observaciones se alejan considerablemente de los cuantiles esperados. Seguimos el mismo procedimiento de antes de ir eliminando observaciones y recompuntado el ECM para encontrar el mejor modelo según la R1DE, que resulta en la siguiente secuencia de eliminaciń de observaciones: $(18, 19, 8, 7, 9)$. En cada caso, el mejor modelo, tanto en ECM absoluto como según la R1DE siguió siendo $Y \sim L_3 + L_4$, y los coeficientes finales no variaron demasiado:
 
-Al igual que antes, concluimos con los estadísticos principales y coeficientes para el modelo elegido, $Y \sim X_1 \times X_2$
+$$
+\begin{split}
+\text{Sin } (18, 19, 8, 7, 9)&: \hat{Y} = 30.13 + 0.23 L_3 - 0.21 L_4 \\
+\text{Con todas}&: \hat{Y} = 31.17 + 0.24 L_3 - 0.22 L_4
+\end{split}
+$$
+
+Al igual que antes, concluimos con los estadísticos principales y coeficientes para el modelo elegido ajustado con todas las observaciones, $Y \sim L_3 + L_4$
 
 ```{r}
 glance(lm3) %>%
@@ -445,30 +418,6 @@ tidy(lm3) %>%
   ) %>%
   knitr::kable()
 ```
-```{r ej3_residuos}
-res3 %>%
-  filter(nombre=="L34") %>%
-  transmute(
-    nombre = map_chr(formula, deparse),
-    loocv_preds) %>%
-  mutate(y = list(df3$Y)) %>%
-  unnest() %>%
-  mutate(r = y - loocv_preds) %>%
-  group_by(nombre) %>%
-  mutate(desvio = sd(r)) %>%
-  ggplot(aes(y, r)) +
-  geom_point() +
-  geom_hline(mapping = aes(yintercept = -2.5*desvio), alpha=0.5) +
-  geom_hline(mapping = aes(yintercept = 0), alpha=0.5) +
-  geom_hline(mapping = aes(yintercept = 2.5*desvio), alpha=0.5) +
-  facet_wrap(~nombre,ncol = 3)
-```
-
-En principio, no observamos una tendencia obvia en los residuos. Podríamos llegar a sospechar cierta heterocedasticidad, con menor varianza a medida que $Y$ aumenta, pero la cantidad de observaciones disponibles es más bien pobre para concluir al respecto. En principio, confirmamos la selección de modelo, dejando un "asterisco" en el supuesto de homocedasticidad para testear su validez en caso de obtener más datos.
-
-Como en los ejercicios previos, si trazásemos un intervalo de confianza alrededor del estimador puntual, $0 \in (\hat{\mu}_{ep} \pm 1\hat{\sigma}_{ep})$. Evidentemente, (y esto es natural considerando que el ECM es siempre positivo), la distribución no es simétrica alrededor de la media, y ofrecer un verdadero IC para el ECM no es ejercicio trivial. En la misma línea,  tal vez a causa del pequeño tamaño muestral  $\hat{\mu}_{ep} < \hat{\sigma}_{ep}$, y la regla de 1SD deja verdaderamente mucho espacio para elegir modelos parsimoniosos. En este caso, resulta ilustrativo ver que por separado $Y \sim L_3$ y $Y \sim  L_4$ son modelos con enorme error, pero el modelo combinado es ~6 veces más preciso y con ~25 veces menor ECM.
-
-Por último, se ve que con variables tan correlacionadas, agregar los términos cuadráticos al modelo dispara el ECM de VC al demonio (aunque de seguro no puede disparar el ECM de entrenamiento), cosa que no necesariamente sucede cuando hay menos términos disponibles como en el ejercicio 2. 
 
 ## Referencias
 
