@@ -3,3 +3,6 @@
 .Rhistory
 .RData
 workfiles/
+*.log
+*_cache/
+*_files/
