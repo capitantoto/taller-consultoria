@@ -13,7 +13,7 @@ options(tinytex.verbose = TRUE)
 ```
 
 # Setup
-```{r}
+```{r, echo = T}
 library(tidyverse) # manipulación de datos en general, graficos
 library(broom) # limpieza y estructuracion de resultados de regresiones
 library(GGally) # gráficos de perfiles, entre otros
