@@ -1,7 +1,7 @@
 ---
 title: "Taller de Consultoria - TP4"
 author: "Gonzalo Barrera Borla"
-date: "6/10/2019"
+date: "13/10/2019"
 output:
   pdf_document: default
 urlcolor: blue
@@ -13,7 +13,7 @@ options(tinytex.verbose = TRUE)
 ```
 
 # Setup
-```{r}
+```{r, echo = T}
 library(tidyverse) # manipulación de datos en general, graficos
 library(broom) # limpieza y estructuracion de resultados de regresiones
 library(PMCMRplus) # comparaciones múltiples para tests de rangos
@@ -29,28 +29,28 @@ Comenzamos por analizar la relación entre media y varianza para cada tiempo y t
 
 ```{r}
 tipo_cols <- cols(
-  trt = col_character(),
+  trt = col_factor(),
   t = col_integer(),
   p = col_double()
 )
-df1 <- read_csv("../data/4-1.csv")
+df1 <- read_csv("../data/4-1.csv") %>%
+  rowid_to_column("id")
 
 df1 %>%
   group_by(trt, t) %>%
-  summarise_all(lst(mean, sd)) %>%
+  summarise_at("p", lst(mean, sd)) %>%
   arrange(desc(sd)) %>%
-  knitr::kable(
-    digits = 3)
+  knitr::kable(col.names = c("Trat.", "Tiempo", "Media", "Desvío"), digits = 3) 
 ```
 
-En primer lugar, para el tratamiento IV y $t=20$, la varianza estimada es exactamente 0, por lo que la razón entre la máxima y mínima varianza para todas las combinaciones de bloque y tratamiento está indefinida, y la regla heurística que plantea Seber [1977, p.195] y utilizaramos en el TP3 no se puede uar. Aún descartando esta última observación, para el tratamiento III la varianza estimada es 12.84 en $t=20$ y sólo 0.28 en $t=30$, que arroja una altísima razón de 43.35.
+En primer lugar, para el tratamiento IV y $t=20$, la varianza estimada es exactamente 0, por lo que la razón entre la máxima y mínima varianza para todas las combinaciones de bloque y tratamiento está indefinida, y la regla heurística que plantea Seber [1977, p.195] y utilizáramos en el TP3 no se puede uar. Aún descartando esta última observación, para el tratamiento III la varianza estimada es 12.84 en $t=20$ y sólo 0.28 en $t=30$, que arroja una altísima razón de 43.35.
 
 Aún peor, cuando graficamos la varianza estimada en función de la media estimada, no se evidencia ninguna relación, por lo que ni siquiera sabríamos cómo morigerar la heterocedasticidad existente:
 
 ```{r}
 df1 %>%
   group_by(trt, t) %>%
-  summarise_all(lst(mean, sd)) %>%
+  summarise_at("p", lst(mean, sd)) %>%
   ggplot(aes(mean, sd, shape = factor(t), color = trt)) +
   geom_point() +
   labs(title = "Desvío estimado por tratamiento y tiempo", x = "Media",
@@ -60,10 +60,11 @@ df1 %>%
 Por el momento, nos bastará con haber notado esta complicación, y avanzaremos con el análisis.
 
 ¿Qué modelo puede llegar a representar adecuadamente estos datos? Para contestarnos, comenzamos graficando el porcentaje de ADN dañado en función de $t$ para cada observación, coloreada según el tratamiento. De fondo, agregamos en línea punteada el "perfil" del porcentaje promedio de ADN dañado por tratamiento y tiempo, para distinguir tendencias:
+
 ```{r}
 medias1 <- df1 %>%
   group_by(t, trt) %>%
-  summarise_all(mean)
+  summarise_at("p", mean)
 
 df1 %>%
   ggplot(aes(t, p, color = trt)) +
@@ -71,14 +72,14 @@ df1 %>%
   geom_line(data = medias1, linetype = "dashed") +
   labs(title = "Porcentaje dañado en función del tiempo", x = "Tiempo",
     y = "Porc.", color = "Trat.")
-
 ```
 
 Pareciera que al menos el tratamiento IV se distingue desde el comienzo de los demás, y que el porcentaje de daño es siempre creciente en $t$, a una tasa constante o _tal vez_ decreciente.
 
 Aunque esté medida en pocos valores únicos, la covariable `t` (tiempo) es cuantitativa, y por ende entendemos que es más razonable plantear lo que en la literatura se conoce como un _análisis de la covarianza_ (ANCOVA) de un factor (el tratamiento) con 4 niveles, antes que un modelo de análisis de la covarianza de 2 factores. 
 
-Combinando estas observaciones, planteamos como modelo de referencia
+Combinando estas observaciones, planteamos como modelos:
+
 - (de referencia) un ANOVA de 2 factores,
 - (y como candidatos) 6 modelos "ANCOVA" con un factor (`tratamiento`) sobre
   - polinomios de grado 1, 2 y 3 en `t`,
@@ -88,7 +89,7 @@ Elegiremos polinomios "crudos" en lugar de los ortogonales por defecto de R para
 
 Si uno ajusta los modelos sobre los datos completos, no importa la métrica elegida, los modelos con más parámetros (ANOVA 2 factores y el cúbico multiplicativo) tienden a ser los que mejor ajustan: con sólo 46 datos, ajustar 16 coeficientes es casi una garantía de éxito.
 
-Para evitar este sesgo hacia mdoelos más complejos, utilizamos el muy recomendable paquete `caret`, que nos permite ajustar modelso con distintas técnicas de resampleo. Para ete ejercicio, optamos por el clásico split entre datos de entrenamiento (70%) y teste (30%), y repetimos el proceso 100 veces. A continuacion, incluimos el error cuadrático medio estimado para cada modelo, y su desvío estándar estimado, para poder seleccionar el "mejor" modelo según la ya discutida regla de un desvío estándar:
+Para evitar este sesgo hacia modelos más complejos, utilizamos el muy recomendable paquete `caret`, que nos permite ajustar modelos con distintas técnicas de resampleo. Para ete ejercicio, optamos por el clásico split entre datos de entrenamiento (70%) y testeo (30%), y repetimos el proceso 100 veces. A continuacion, incluimos el error cuadrático medio estimado para cada modelo, y su desvío estándar estimado, para poder seleccionar el "mejor" modelo según la ya discutida regla de un desvío estándar:
 
 ```{r, cache = TRUE}
 formulas <- list(
@@ -117,13 +118,13 @@ resumen %>%
   knitr::kable(col.names = c("Modelo", "ECM", "Desvio"), digits = 2)
 ```
 
-Como es de esperar, el modelo cúbico multiplicativo no resiste la validación cruzada. Sin embargo, el modelo que mejor ajusta, aún cuando usando técnicas de validación cruzada, sigue siendo el ANOVA de 2 factores, que cuenta con la mayor libertad posible para adecuarse a los datos (tiene la misma cantidad de coeficientes que el cúbico multiplicativo, pero sin correlación alguna entre las covariables predictoras, que sí tienen $t, t^2, t^3$). Sin embargo, se observa que el desvío estimado para el modelo ANOVA de 2 factores es bastante alto, lo suficiente como para que la regla de 1 SD contenga cómodamente a todos los modelos salvo, justamente el cúbico multiplicativo. En este contexto, nos inclinamos por el modelo más sencillo posible, que es el lineal aditivo. Ajustamos entonces
+Como es de esperar, el modelo cúbico multiplicativo no resiste la validación cruzada. Sin embargo, el modelo que mejor ajusta, aún usando técnicas de validación cruzada, sigue siendo el ANOVA de 2 factores, que cuenta con la mayor libertad posible para adecuarse a los datos (tiene la misma cantidad de coeficientes que el cúbico multiplicativo, pero sin correlación alguna entre las covariables predictoras, que sí tienen $t, t^2, t^3$). Sin embargo, se observa que el desvío estimado para el modelo ANOVA de 2 factores es bastante alto, lo suficiente como para que la regla de 1 SD contenga cómodamente a todos los modelos salvo, justamente el cúbico multiplicativo. En este contexto, nos inclinamos por el modelo más sencillo posible, que es el lineal aditivo. Ajustamos entonces
 
 $$
 p_{ij} = \mu_i + \beta \times t + \epsilon_{ij} \quad \text{con } \epsilon_{ij} \sim N(0, \sigma^2), \: i \in \text{{I, II, III, IV}}, 1 \leq j \leq n_i
 $$
 
-donde $\mu_i$ es la ordenada correspondiente al tratamiento $i$, $t$ es el tiempo de medición y $n_i$ la cantidad de observaciones del i-'esimo tratamiento, _a sabiendas_ de que no hemos podido garantizar todavía la homocedasticidad de los $\epsilon_{ij}$. Los principales estadísticos del modelo, efectos principales y coeficientes del modelo _ajustado con todos los datos_ resultan:
+donde $\mu_i$ es la ordenada correspondiente al tratamiento $i$, $t$ es el tiempo de medición y $n_i$ la cantidad de observaciones del i-ésimo tratamiento, _a sabiendas_ de que no hemos podido garantizar todavía la homocedasticidad de los $\epsilon_{ij}$. Los principales estadísticos del modelo, efectos principales y coeficientes del modelo _ajustado con todos los datos_ resultan:
 
 ```{r}
 lm1 <- lm(p ~ trt + t, df1)
@@ -155,18 +156,10 @@ tidy(lm1) %>%
   knitr::kable()
 ```
 
-Podemos observar que tanto (i) el modelo completo, (ii) los efectos principales del tratamiento y el tiempo y (iii) cada coeficiente individual son significativos con bajísimo p-valor. Revisamos los residuos (absolutos y estudentizados) de las predicciones, para estimar si hemos capturado satisfactoriamente la estructura de los datos, y no observamos nada particularmente alarmante:
+Podemos observar que tanto (i) el modelo completo, (ii) los efectos principales del tratamiento y el tiempo y (iii) cada coeficiente individual son significativos con bajísimo p-valor. Revisamos los residuos estudentizados de las predicciones, para estimar si hemos capturado satisfactoriamente la estructura de los datos, y no observamos nada particularmente alarmante:
 
 ```{r}
 df1full <- augment(lm1, data = df1)
-
-df1full %>%
-  ggplot(aes(.fitted, .resid, color = trt, shape = factor(t))) +
-  geom_point() +
-  labs(title = "Residuos en función del valor predicho",
-       subtitle = "No se evidencia estructura aparente",
-       x = "Porcentaje Predicho", y = "Residuo", color = "Trat.", shape = "Tiempo") +
-  theme(legend.position = "bottom")
 
 df1full %>%
   ggplot(aes(.fitted, .std.resid, color = trt, shape = factor(t))) +
@@ -175,14 +168,43 @@ df1full %>%
        subtitle = "Ningún residuo tiene valor absoluto mayor a 2.5",
        x = "Porcentaje Predicho", y = "Residuo", color = "Trat.", shape = "Tiempo") +
   theme(legend.position = "bottom")
+
+df1full %>%
+  ggplot(aes(sample = .resid)) +
+  geom_qq() +
+  geom_qq_line() +
+  labs(title = "QQ-plot de los residuos de predicción")
+
+shapiro1 <- shapiro.test(df1full$.resid)
 ```
+
+Lamentablemente, el gráfico cuantil-cuantil de los residuos de predicción revela que el supuesto de normalidad en los $\epsilon_{ij}$ no es realmente sostenible. Un test de normalidad tradicional como el de Shapiro-Wilks arroja un p-valor de `r signif(shapiro1$p.value, 2)`, pero un buen gráfico vale más que mil tests. Intentamos remover iterativamente las observaciones con residuos más extremos y volver a ajustar el cojunto de modelos planteados, pero recién después de remover 8 observaciones conseguimos un ajuste razonable del QQ-plot. En todo ese proceso, $p \sim tratamiento + t$ siguió siendo siempre el mejor modelo según la R1DE, por lo que preferimos mantener el dataset completo y reportar estadísticos y coeficientes del ajuste con todos los datos.
 
 A pesar de la evidente heterocedasticidad original de las observaciones, hemos obtenido un ajuste bastante satisfactorio para los datos, con una directa interpretación física. Sabemos que cuando asumimos erróneamente una matriz de covarianza $\sigma^2 I_n$ en lugar de la verdadera $V$, los estimadores de los parámetros del modelo $\hat{\beta}$ son insesgados, pero no los de menor varianza. Así y todo, hemos obtenido unos estimadores indudablemente distintos a cero, con lo cual podemos en principio confiar en ellos, ya que de usar la verdadera matriz de covarianza su significación debería mejorar.
 
-Finalmente, podemos asegurar que
+```{r, eval = FALSE}
+# NO SE EVALÚA: remoción de "outliers" y recómputo de LGOCV
+plot(lm1, id.n = 10, which = 2, labels.id = df1$id)
+outs <- c(2, 31, 15, 18, 46, 33, 45, 17)
+lm1.2 <- lm(p ~ trt + t, df1[-outs,])
+plot(lm1.2, id.n = 10, which = 2, labels.id = df1[-outs,]$id)
+
+set.seed(42)
+trCont <- trainControl(method = "LGOCV", number = 100, p = 0.7)
+resumen <- tibble(
+  formula = formulas,
+  train = map(formula, train, method = "lm", data = df1[-outs,], trControl = trCont)
+) %>%
+  mutate(resultados = map(train, "results")) %>%
+  unnest(resultados) %>%
+  select(-train)
+```
+
+Finalmente, podemos afirmar que
 
 - el porcentaje inicial de ADN dañado varía con el método,
-- pero el avance del daño en el tiempo no varía con el método.
+- el avance del daño es aproximadamente lineal en el tiempo, y
+- el avance del daño en el tiempo no varía significativamente con el método.
 
 Los modelos ajustados son:
 
@@ -212,6 +234,7 @@ augment(lm1, newdata = grilla) %>%
     y = "Porc.", color = "Trat.")
 ```
 
+Dado que las varianzas entre diferentes poblaciones son tan heterogéneas, no podemos justificar el uso de un procedimiento de comparaciones múltiples como el de Tukey así que no presentaremos la tabla de resultados completa, pero mencionaremos que devuelve básicamente lo que uno intuitivamente observa de analizar los coeficientes y el último gráfico. Del menos al más dañino, se ordenan $II < III < I < IV$, y son todos significativamente diferentes entre sí, salvo por II y III.
 
 # Ejercicio 2
 
@@ -247,7 +270,7 @@ df2 %>%
        x = "Localidad", y = "Rendimiento")
 ```
 
-De lo expuesto resulta improbable que un análisis de la varianza de dos factores "directo" nos provea mucha información útil. En principio, al tener sólo una observación por "celda" (combinación de bloque y tratamiento), sólo podemos plantear un modelo aditivo o con alguna interacción limitada como la que propone Tukey con su invento de "1 grado de libertad para la no-aditividad". En efecto, si ajustamos un modelo del estilo $rinde \sim variedad \: |\: localidad$, tanto la localidad como las variedades parecen sumamente significativas, pero el gráfico de los residuos versus predichos tiene una clara estructura "parabólica":
+De lo expuesto resulta improbable que un análisis de la varianza de dos factores "directo" nos provea mucha información útil. En principio, al tener sólo una observación por "celda" (combinación de bloque y tratamiento), sólo podemos plantear un modelo aditivo o con alguna interacción limitada como la que propone Tukey con su invento de "1 grado de libertad para la no-aditividad". En efecto, si ajustamos un modelo del estilo $rinde \sim variedad + localidad$, tanto la localidad como las variedades parecen sumamente significativas, pero el gráfico de los residuos versus predichos tiene una clara estructura "parabólica":
 
 ```{r}
 lm2 <- lm(rend ~ loc + var, df2)
@@ -268,7 +291,9 @@ df2 <- df2 %>%
 df2 %>%
   ggplot(aes(loc, rend, color = var, group = var)) +
   geom_point() +
-  geom_line(linetype = "dashed")
+  geom_line(linetype = "dashed") +
+  labs(title = "Rinde promedio por variedad y localidad",
+       x = "Localidad", y = "Rinde", color = "Variedad")
 ```
 
 Aquí se nos plantea una disyuntiva: por un lado, podríamos considerar por separado los dos regímenes de ciudades antes mencionados: 
@@ -278,9 +303,9 @@ Aquí se nos plantea una disyuntiva: por un lado, podríamos considerar por sepa
 
 Por otra parte, podríamos mantener todas las observaciones juntas, y considerar algún test no paramétrico con pocos supuestos sobre los datos, para ver si podemos obtener alguna conclusión global. En esta línea, surgen naturalmente dos tests para diseños en bloque completos sin replicación: el test de Friedman (análogo al test del signo para varias muestras), y el test de Quade (análogo al test de Wilcoxon de rangos signados). 
 
-Siguiendo a Conover [1999, pp. 369-375], los supuestos necesarios son mínimos. Para ambos se requiere que (i) los bloques sean independientes entre sí y que (ii) las observaciones en cada bloque sean ordenables según algún criterio). Para el test de Quade, se pide además que (iii) los bloques se puedan ordenar por su rango muestral. En estos datos los tres supuestos se cumplen, pero nos inclinaremos por el test de Quade, que entendemos aprovechará mejor la información pertinente a la amplitud de rangos intra-bloques.
+Siguiendo a Conover [1999, pp. 369-375], los supuestos necesarios para estos tests no paramétricos son mínimos. Ambos requieren que (i) los bloques sean independientes entre sí y que (ii) las observaciones en cada bloque sean ordenables según algún criterio. Para el test de Quade, se pide además que (iii) los bloques se puedan ordenar por su rango muestral. En estos datos los tres supuestos se cumplen, pero nos inclinaremos por el test de Quade, que entendemos aprovechará mejor la información pertinente a la amplitud de rangos intra-bloques.
 
-En ambos casos, asumimos que si $X_{ij}$ es el rinde de la j-ésima variedad en la i-ésima localidad, $X_{ij} \sim F_i(x-\theta_j), F_i \in \Omega_0 \: \forall \: i\in\{1,\dots,13\}, \: j \in \{1,\dots,4\}$ son todas VA independientes. Es decir que $F_i$ es la distribución de las observaciones del i-ésimo bloque, y dentro del bloque $\theta_j$ es la mediana del j-ésimo tratamiento. La hipótesis nula será $H_0: \theta_i = \theta_j \forall i,j$, y la alternativa su complemente (que al menos dos medianas son distintas).
+En ambos casos, asumimos que si $X_{ij}$ es el rinde de la j-ésima variedad en la i-ésima localidad, $X_{ij} \sim F_i(x-\theta_j), F_i \in \Omega_0 \: \forall \: i\in\{1,\dots,13\}, \: j \in \{1,\dots,4\}$ son todas VA independientes. Es decir que $F_i$ es la distribución de las observaciones del i-ésimo bloque (localidad), y dentro del bloque $\theta_j$ es la mediana del j-ésimo tratamiento (variedad). La hipótesis nula será $H_0: \theta_i = \theta_j \forall i,j$, y la alternativa su complemento (i.e., al menos dos medianas son distintas entre sí).
 
 ```{r}
 mat2 <- df2 %>% spread(var, rend) %>% select(2:5) %>% as.matrix
@@ -336,14 +361,18 @@ medias <- df3 %>%
 df3 %>%
   ggplot(aes(blq, larvas, color = trt, group = trt)) +
   geom_point() +
-  geom_line(data = medias, linetype = "dashed")
+  geom_line(data = medias, linetype = "dashed") +
+  labs(title = "Larvas por bloque y tratamiento", 
+       subtitle = "La línea punteada representa el promedio por celda",
+       x = "Bloque", y = "Larvas", color = "Emulsión")
 ```
 
-En una primera aproximación _inercial_ (en tanto está influida por la metodología del ejercicio anterior), nos lleva a
+Una primera aproximación _inercial_ (en tanto está influida por la metodología del ejercicio anterior), nos lleva a
+
 - como no contamos con información extra sobre la existencia o no de diferencias entre los controles, y los perfiles no son muy similares, _considerar los dos controles por separado_ y
 - asumiendo que la decisión de contar en sólo 2 de los 9 cuadraditos por bloque fue para ahorrar trabajo, _sumar los dos subbloques_ por celda y considerar una única observación.
 
-Y sin hacer más supuestos sobre las distribuciones, intentar aplicar un test no paramétrico para la diferencia de medianas. Si agrupamos los subbloques y consideramos los rangos y promedios por bloque,
+Y sin hacer más supuestos sobre las distribuciones, intentamos aplicar un test no paramétrico para la diferencia de medianas. Si agrupamos los subbloques y consideramos los rangos y promedios por bloque,
 ```{r}
 df3_ <- df3 %>%
   mutate(blq = fct_reorder(as_factor(blq), larvas, mean)) %>%
@@ -361,8 +390,7 @@ df3_ %>%
   knitr::kable(col.names = c("Blq.", "Rango", "Media"), digits = 2)
 ```
 
-observamos que (a) la razón del mayor al menor rango es escasamente mayor a 2 y (b) el rango por bloque aumenta junto con la media. Además, Conover [1977, p. 368] menciona que para seis o más tratamientos, el test de Friedman tiende a tener mayor potencia que Quade, circunstancias por las cuales nos inclinamos a favor del test de Friedman por sobre el de Quade. Aplicado a nuestros datos, arroja un p-valor de `r signif(fried3$p.value, 3)`, suficiente para rechazar la hipótesis nula de la igualdad de medianas, a nivel, por ejemplo, $\alpha = 0.1$. Si luego realizamos un test "post-hoc" de comparaciones múltiples significativas con el mimsmo $\alpha$, obtenemos 
-
+observamos que (a) la razón del mayor al menor rango es escasamente mayor a 2 y (b) el rango por bloque aumenta junto con la media. Además, Conover [1977, p. 368] menciona que para seis o más tratamientos, el test de Friedman tiende a tener mayor potencia que Quade, circunstancias por las cuales nos inclinamos a favor del test de Friedman por sobre el de Quade. Aplicado a nuestros datos, arroja un p-valor de `r signif(fried3$p.value, 3)`, suficiente para rechazar la hipótesis nula de la igualdad de medianas, a nivel, por ejemplo, $\alpha = 0.1$. Si luego realizamos un test "post-hoc" de comparaciones múltiples significativas con el mismo $\alpha$, obtenemos:
 
 ```{r}
 fried_posthoc <- PMCMRplus::frdAllPairsConoverTest(df3_$larvas, df3_$trt, df3_$blq)
@@ -372,7 +400,11 @@ fried_posthoc$p.value %>%
 
 Es decir, que sólo las emulsiones 3 y 4 son significativamente distintas de los controles, y a su vez ninguna de las emulsiones es distinguible de las demás. Recordando el gráfico de perfiles original, estos resultados nos resultan más bien extraños: puede que las emulsiones no se distingan claramente entre sí, pero ¿cómo puede la emulsión 3 ser significativamente distinta de ambos controles y la 2 no, si sus perfiles están básicamente superpuestos?
 
-Pensándolo bien, creeríamos que el problema es autoimpuesto, al usar un test no-paramétrico, para comparar cantidades que están muy cerca entre sí (# de larvas para las emulsiones 2 y 3) contra otras que están muy lejos de ambas (los controles). Diferencias ínfimas entre emulsiones y considerables respecto al control, al pasarlas a la escala de rangos, quedan "emparejadas" en distancias unitarias, y si por azar una emulsión mata alguna larva menos que otra, el p-valor en sus tests de comparaciones múltiples sufrirá más de lo justificado. Para comprobar esta hipótesis, realizamos el mismo test de comparaciones múltiples de antes, pero ordenando los tratamientos siempre igual: Control 1 > Control 2 > Emulsión 1 > Emulsión 2 > Emulsión 3 > Emulsión 4. Los p-valores resultan:
+Pensándolo bien, creeríamos que el problema es autoimpuesto, al usar un test no-paramétrico, para comparar cantidades que están muy cerca entre sí (# de larvas para las emulsiones) contra otras que están muy lejos (los controles). Diferencias ínfimas entre emulsiones y considerables respecto al control, al pasarlas a la escala de rangos, quedan "emparejadas" en distancias unitarias, y si por azar una emulsión mata aunque sólo sea una larva menos que otra, el p-valor en sus tests de comparaciones múltiples sufrirá más de lo justificado. Para comprobar esta hipótesis, realizamos el mismo test de comparaciones múltiples de antes, pero sobre datos "sintéticos" en los cuales los tratamientos se ordenan siempre igual: 
+
+Control 1 > Control 2 > Emulsión 1 > Emulsión 2 > Emulsión 3 > Emulsión 4. 
+
+Los p-valores resultan:
 
 ```{r}
 b <- 6
@@ -387,6 +419,11 @@ PMCMRplus::frdAllPairsConoverTest(testme)$p.value %>%
 Para disminuir la cantidad de comparaciones múltiples a realizar, preferimos fusionar los dos controles en un único tratamiento. Esto pasa de 15 a 10 la cantidad de comparaciones, y además nos permite estimar mejor la varianza del control y "apretar" los intervalos de confianza que lo consideren. Para hacer uso de la información cuantitativa (y no sólo la ordinal como hasta ahora) con un tradicional diseño de ANOVA con 2 factores, debemos suponer normalidad en los datos, y una misma varianza para todas las poblaciones. Comenzamos por revisar la homocedasticidad:
 
 ```{r}
+df3 <- df3 %>%
+  mutate(
+    blq = fct_reorder(as_factor(blq), larvas, mean),
+    trt = fct_collapse(trt, Control = c("Control_1", "Control_2")))
+
 df3 %>%
   group_by(trt) %>%
   summarise_at("larvas", lst(mean, sd)) %>%
@@ -407,11 +444,6 @@ df3 %>%
 
 
 ```{r}
-df3 <- df3 %>%
-  mutate(
-    blq = fct_reorder(as_factor(blq), larvas_, mean),
-    trt = fct_collapse(trt, Control = c("Control_1", "Control_2")))
-
 medias <- df3 %>%
   group_by(blq, trt) %>%
   summarise_at("larvas_", mean)
@@ -419,7 +451,9 @@ medias <- df3 %>%
 medias %>%
   ggplot(aes(blq, larvas_, color = trt, group = trt)) +
   geom_point() +
-  geom_line(data = medias)
+  geom_line(data = medias, linetype = "dashed") +
+  labs(title = expression(paste("Promedio de ", sqrt(larvas), "  por tratamiento y bloque")),
+       x = "Bloque", y = expression(sqrt(larvas)), color = "Tratamiento")
 ```
 
 ```{r}
@@ -427,14 +461,52 @@ df3 %>%
   ggplot(aes(sample = larvas_, color = trt)) +
   geom_qq() +
   geom_qq_line() +
-  facet_wrap(~ trt, scale = "free_y")
+  facet_wrap(~ trt, scale = "free_y") +
+  labs(title = expression(paste("QQ-plot de ", sqrt(larvas), "  por tratamiento")),
+       x = "", y = "") +
+  theme(legend.position = "none")
 ```
 
-Salvo por una observación atípica para la emulsión 4, los datos correspondientes a las 4 emulsiones tiene una distribución aceptablemente similiar a una normal. Para los controles combinados, una distribución normal no parece demasiado adecuada en los extremos, pero tampoco es aberrante, así que por el momento consideramos que los supuestos de normalidad y homocedasticidad se sostienen razonablemente. Ajustamos un modelo de efectos aditivos del estilo $\sqrt{larvas} \sim bloque + emulsión$, y examinamos los resultados:
+Salvo por una observación atípica para la emulsión 4, los datos correspondientes a las 4 emulsiones tiene una distribución aceptablemente similiar a una normal. Para los controles combinados, una distribución normal no parece demasiado adecuada en los extremos, pero tampoco es aberrante, así que por el momento consideramos que los supuestos de normalidad y homocedasticidad se sostienen razonablemente. Ajustamos un modelo de efectos aditivos del estilo $\sqrt{larvas} \sim bloque + emulsión$, y examinamos los residuos de las predicciones:
 
 ```{r}
 lm3 <- lm(larvas_ ~ blq + trt, df3)
+df3aug <- augment(lm3, data = df3)
 
+df3aug %>%
+  ggplot(aes(.fitted, .std.resid, color = trt)) +
+  geom_point() +
+  labs(title = "Residuos en función de predichos",
+       x = "Predicho", y = "Residuo", color = "Emulsión")
+
+df3aug %>%
+  ggplot(aes(sample = .resid)) +
+  geom_qq() +
+  geom_qq_line() +
+  labs(title = "QQ-plot de residuos de predicción", x = "", y = "")
+```
+
+No nos encontramos con ninguna estructura obvia, pero sí observamos un par de _outliers_ con residuo mayor a 3 correspondientes a las observaciones con 84 y 71 larvas del Control 1 en los bloques 6 y 4, respectivamente. Esto era de esperar, ya que como vimos en los QQ-plots por población, el control se alejaba de la normalidad en los extremos. Gracias a haber fusionado los dos controles en uno sólo, podemos descartar ambas observaciones sin dejar de tener un estimador de la varianza para en control en dichos bloques, así que las abandonamos. El ajuste resultante luce fundamentalmente creíble:
+
+```{r}
+df3 <- filter(df3, larvas < 70)
+lm3 <- lm(larvas_ ~ blq + trt, df3)
+df3aug <- augment(lm3, data = df3)
+
+df3aug %>%
+  ggplot(aes(.fitted, .std.resid, color = trt)) +
+  geom_point() +
+  labs(title = "Residuos en función de predichos",
+       x = "Predicho", y = "Residuo", color = "Emulsión")
+
+df3aug %>%
+  ggplot(aes(sample = .resid)) +
+  geom_qq() +
+  geom_qq_line() +
+  labs(title = "QQ-plot de residuos de predicción", x = "", y = "")
+```
+
+```{r}
 glance(lm3) %>%
   transmute(
     "R^2 aj." = as.character(signif(adj.r.squared, 3)),
@@ -462,16 +534,18 @@ tidy(lm3) %>%
   knitr::kable()
 ```
 
-Se observa inmediatamente que el modelo produce un buen ajuste, y que el efecto de los tratamiento esindudablemente significativo, tanto conjuntamente como individualmente. El efecto de los bloques es significativo al tradicional nivel del 5%, por lo que hemos decidido conservarlo en el modelo, pero obviar los bloques podría ser una decisión razonable también. Graficando los residuos estudentizados contra las cantidades predichas, no nos encontramos con ninguna estructura remanente, pero sí observamos un par de _outliers_ con residuo mayor a 3 correspondientes al control. Esto era de esperar, ya que como vimos en los QQ-plots por población, el control se alejaba de la normalidad en los extremos. 
+Se observa inmediatamente que el modelo produce un buen ajuste, y que el efecto de los tratamientos es indudablemente significativo, tanto conjuntamente como individualmente. El efecto de los bloques es significativo al tradicional nivel del 5%, por lo que hemos decidido conservarlo en el modelo, pero obviar los bloques podría ser una decisión razonable también para mejorar la interpretabilidad de los resultados.
+
+Luego de fusionar los dos controles y eliminar los valores extremos de larvas, los desvíos estimados por tratamiento son fundamentalmente idénticos, lo cual nos permitirá aplicar un test de comparaciones múltiples de Tukey con confianza:
 
 ```{r}
-df3aug <- augment(lm3, data = df3)
-df3aug %>%
-  ggplot(aes(.fitted, .std.resid, color = trt)) +
-  geom_point()
+df3 %>%
+  group_by(trt) %>%
+  summarise_at("larvas_", lst(mean, sd)) %>%
+  knitr::kable(digits = 2, col.names = c("Trat.", "Media", "Desvio"))
 ```
 
-Consideramos rehacer el análisis sin estas observaciones potencialmente atípicas, pero las mejoras en el $R^2$ ajustado del modelo, y la significatividad de los coeficientes eran más bien menores, por lo cual preferimos mantener el _dataset_ completo. Finalmente, estamos en condiciones de realizar un test de Tukey de comparaciones múltiples _entre tratamientos_, que arroja los siguientes resultados:
+
 ```{r}
 TukeyHSD(aov(lm3), conf.level = 0.05)$trt %>%
   knitr::kable(digits = 3, col.names = c("Estimado", "Lím. inf. IC", "Lím. sup. IC", "P-valor"))
@@ -480,6 +554,8 @@ TukeyHSD(aov(lm3), conf.level = 0.05)$trt %>%
 A nivel 5%, podemos concluir que
 
 - el tratamiento con cualquier emulsión es efectivo para eliminar larvas,
-- la emulsión 1 es significativamete más efectiva que las 3 y 4, pero que la dos.
+- la emulsión 1 es significativamete más efectiva que las 3 y 4, pero no que la 2, y
+- la emulsión 2 es significativamnte más efectiva que 4, pero no que la 3, y
+- las emulsiones 3 y 4 no se distinguen entre sí.
 
 Mas allá de la significatividad estadística, de tener que decantarse por una única opción, nuestra sugerencia sería usar la emulsión 1.
