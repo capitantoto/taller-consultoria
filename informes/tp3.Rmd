@@ -1,7 +1,7 @@
 ---
 title: "Taller de Consultoria - TP3"
 author: "Gonzalo Barrera Borla"
-date: "23/09/2019"
+date: "12/09/2019"
 output:
   pdf_document: default
 urlcolor: blue
@@ -45,37 +45,34 @@ H_0 := \theta_Y = \theta_X \quad \text{vs.} \quad H_1:= \theta_Y > \theta_X
 $$
 Como los brotes están naturalmente apareados en sus respectivas macetas, es razonable realizar un test de muestras apareadas. Para determinar qué clase de test realizar, nos resta contestar: ¿Es normal la distribución de las alturas de ambos tipos de brotes? Si la respuesta es "sí", podemos usar un "test t", mientras que si no será conveniente recurrir a alguna  alternativa no paramétrica, como el test de Wilcoxon de rangos signados, que sólo requiere que la distribución bajo la hipótesis nula sea simétrica.
 
-```{r}
-pv_norm_dif <- shapiro.test(df1$cruz - df1$auto)$p.value
-pv_norm_auto <- shapiro.test(df1$auto)$p.value
-pv_norm_cruz <- shapiro.test(df1$cruz)$p.value
-```
-
-Para testear la normalidad de los datos, comensamos por graficar la estimación empírica de la densidad de cada tipo de maíz, y de la diferencia de alturas por maceta:
+Para examinar la normalidad de los datos, comenzamos por graficar un QQ-plot y la estimación empírica de la densidad de cada tipo de maíz, y de la diferencia de alturas por maceta:
 
 ```{r}
-g1 <- df1 %>%
-  mutate(diferencia = cruz - auto) %>%
-  ggplot(aes( diferencia)) +
-  geom_density() +
-  labs(title = "Densidad empírica: diferencia")
+df1 <- df1 %>%
+  mutate(diferencia = cruz - auto)
 
-g2 <- df1 %>%
-  gather("variedad", "altura", -maceta) %>%
-  ggplot(aes(altura, color = variedad)) +
-  geom_density() +
-  labs(title = "Densidades empíricas: especies") +
-  theme(legend.position = c(0.15,0.9),
-        legend.background = element_blank())
+df1 %>%
+  gather("tipo", "valor", -maceta) %>%
+  ggplot(aes(sample = valor, color = tipo)) +
+  geom_qq() +
+  geom_qq_line() +
+  facet_wrap(~ tipo, scale = "free_y") +
+  theme(legend.position = "bottom") +
+  labs(title = "QQ-plot normal")
 
-grid.arrange(g1, g2, ncol = 2)
+df1 %>%
+  gather("tipo", "valor", -maceta) %>%
+  ggplot(aes(valor, color = tipo)) +
+  geom_density() +
+  facet_wrap(~ tipo, scale = "free_x") +
+  theme(legend.position = "bottom") +
+  labs(title = "Densidades empíricas")
 ```
 
-Las densidades individuales _podrían_ llegar a ser normales, aunque tienen colas a izquierda un tanto pesadas, lo cual se nota aún más en la densidad de las diferencias. Para cuantificar esta primera impresión, recurrimos al test de Shapiro univariado. Para la diferencia $D_i=Y_i - X_i$, el p-valor es de `r signif(pv_norm_dif, 2)`, que dependiendo del nivel de significaión utilizado puede alcanzar o no para rechazar la normalidad. Si realizamos dos tests por separado, para la muestra $(X_1,\dots,X_n)$ de brotes autofertilizados obtenemos un p-valor `r signif(pv_norm_auto, 2)` con lo cual es razonable asumir su normalidad, pero al aplicar el test a la muestra de fertilización cruzada, obtenemos un p-valor de `r signif(pv_norm_cruz, 2)` que nos lleva a rechazar su normalidad. Resulta difícil suponer que por casualidad las diferencias de altura resulten normales si cada muestra no tiene una distribución normal subyacente, así que por seguridad convendrá recurrir a un test no paramétrico.
 
+Las densidades individuales _podrían_ llegar a ser normales, aunque tienen colas a izquierda un tanto pesadas, lo cual se nota aún más en la densidad de las diferencias. Sin embargo, los QQ-plots revelan observaciones decididamente atípicas. Aquí, podríamos decidir descartar las observaciones atípicas y repetir los gráficos previos, pero preferimos simplemente abandonar el supuesto de normalidad, y recurrir a un test no paramétrico.
 
 Nótese que bajo $H_0 := \theta_Y = \theta_X \Rightarrow \: F_X=F_Y$, de manera que la distribución de $Y_i - X_i$ será simétrica, y podemos utilizar un test de Wilcoxon para datos apareados con confianza.
-
 
 ```{r}
 alfa <- 0.05
@@ -88,9 +85,11 @@ t_apar <- t.test(df1$cruz, df1$auto, paired = T, alternative = "g",
 t_2samp <- t.test(df1$cruz, df1$auto, paired = F, alternative = "g",
                         conf.int = T, conf.level = 1-alfa)
 ```
-Este test arroja un p-valor de `r signif(wcx_apar$p.value, 2)`, de manera que con el tradicional criterio de significación $\alpha = `r alfa`$, podemos rechazar la hipótesis nula y concluir que la diferencia entre las medianas de los brotes de fertilización cruzada y los autofertilizados es positiva. Aprovechando el hecho de que el estadístico $T^+$ es un estimador de Hodges-Lehmann, podemos encontrar también el intervalo de confianza de nivel `r 100*(1-alfa)`% correspondiente al test, que resulta ser $[`r wcx_apar$conf.int`)$.
 
-Por último, y a modo ilustrativo, incluimos en la siguiente tabla los p-valores e intervalos de confianza de nivel `r 100*(1-alfa)`% correspondientes a cuatro alternativas de test razonables en este problema: 
+Este test arroja un p-valor de `r signif(wcx_apar$p.value, 2)`, de manera que con el tradicional criterio de significación $\alpha = `r alfa`$, podemos rechazar la hipótesis nula y concluir que la diferencia entre las medianas de los brotes de fertilización cruzada y los autofertilizados es positiva. Aprovechando el hecho de que el estadístico $T^+$ del test de Wilcoxon es un estimador de Hodges-Lehmann, podemos encontrar también el intervalo de confianza de nivel `r 100*(1-alfa)`% correspondiente al test, que resulta ser $[`r wcx_apar$conf.int`)$.
+
+Por último, y a modo ilustrativo, incluimos en la siguiente tabla los p-valores y límites inferiores de los intervalos de confianza de nivel `r 100*(1-alfa)`% correspondientes a cuatro alternativas de test razonables en este problema. Al ser todas alternativas de un mismo test a una cola, el límite superior del IC es siempre
+$+\infty$.
 
 ```{r}
 tribble(
@@ -107,7 +106,7 @@ tribble(
   knitr::kable(digits = 4)
 ```
 
-Es decir, que en todos los casos hubiésemos rechazado la hipótesis nula, pero la estimación de la diferencia en las medianas/medias hubiese sido bastante distinta.
+Es decir, que en todos los casos hubiésemos rechazado la hipótesis nula a nivel 5%, pero la estimación de la diferencia en las medianas/medias hubiese sido bastante distinta.
 
 # Ejercicio 2
 
@@ -131,7 +130,7 @@ g3 <- df2 %>%
   summarise_all(mean)%>%
   spread(veneno, sobrevida) %>%
   ggparcoord(2:4, "trt") +
-  labs(title = "Sobrevida promedio por tratamiento",
+  labs(title = "Dif. con la media por tratamiento",
        x = "Veneno", y = "Sobrevida (hs)", color = "Trat.") +
   theme(legend.position = "bottom")
 
@@ -140,7 +139,7 @@ g4 <- df2 %>%
   summarise_all(mean)%>%
   spread(trt, sobrevida) %>%
   ggparcoord(2:5, "veneno") +
-  labs(title = "Sobrevida promedio por veneno",
+  labs(title = "Dif. con la media por veneno",
        x = "Tratamiento", y = "Sobrevida (hs)", color = "Veneno") +
   theme(legend.position = "bottom")
 
@@ -149,7 +148,7 @@ grid.arrange(g3, g4, ncol = 2)
 
 A primera vista, no se observa paralelismo en ninguno de los dos gráficos Sin embargo, salvo un ligero entrecruzamiento en los perfiles de los venenos II y III para los tratamientos C y D, los perfiles no se cruzan en ningún otro punto, por lo que tal vez sea razonable ignorar las interacciones y considerar un modelo de efectos únicamente aditivos.
 
-Por otra parte, debemos corroborar el fortísimo supuesto de _homocedasticidad_ de los $\epsilon_{ijk}$ que hicimos inicialmente. Seber [1977, p. 195] siguiendo a Scheffé menciona que cuando se cuenta con un diseño balanceado como aquí, la desigualdad en las varianzas para cada combinación de bloque y tratamiento no hace demasiado "daño", siempre y cuando la razón entre el mayor y el menor desvío estándar es menor a 2. Lamentablemente, nuestros datos son "bochornosos" en tal sentido:
+Por otra parte, debemos corroborar el fortísimo supuesto de _homocedasticidad_ de los $\epsilon_{ijk}$ que hicimos inicialmente. Seber [1977, p. 195] siguiendo a Scheffé menciona como heurística que cuando se cuenta con un diseño balanceado como aquí, la desigualdad en las varianzas para cada combinación de bloque y tratamiento no hace demasiado "daño", siempre y cuando la razón entre el mayor y el menor desvío estándar sea menor a 2. Lamentablemente, nuestros datos son "bochornosos" en tal sentido:
 
 ```{r}
 df2 %>%
@@ -171,10 +170,12 @@ df2 %>%
   summarise_all(lst(mean, sd)) %>%
   ggplot(aes(mean, sd, color = trt, shape = veneno)) +
   geom_point() +
-  labs(x = "Media", y = "Desvío", shape = "Veneno", color = "Trat.")
+  labs(title = "Relación entre desvío y media muestral por población",
+       subtitle = "Datos originales de sobrevida",
+       x = "Media", y = "Desvío", shape = "Veneno", color = "Trat.")
 ```
 
-En este caso, donde $\sigma \approx k \times \mu$, la transformación sugerida es el logaritmo. Esto es razonable, ya que al hablar por ejemplo del logaritmo base 2 de la _sobrevida_, un tratamiento que duplica la supervivencia, aumentará $\log_2(y)$ en una unidad. Aplicando esta transformación, el la razón entre el máximo y mínimo desvíos anteriormente mencionada mejora bastante, pero sigue estando por encima de 7, muy lejos del corte de 2 que propone Seber.
+En este caso, donde $\sigma \approx k \times \mu$, la transformación sugerida es el logaritmo. Esto es razonable, ya que al hablar por ejemplo del logaritmo base 2 de la _sobrevida_, un tratamiento que duplica la supervivencia, aumentará $\log_2(y)$ en una unidad. Aplicando esta transformación, la razón entre el máximo y mínimo desvíos anteriormente mencionada mejora bastante, pero sigue estando por encima de 7, muy lejos del corte de 2 que propone Seber.
 
 Haremos un intento más, y en lugar de considerar la transformación logarítmica, buscaremos la transformación "óptima" según este criterio de optimalidad, de entre la familia de transformaciones [Box-Cox](https://en.wikipedia.org/wiki/Power_transform#Box%E2%80%93Cox_transformation) de un parámetro, que incluye el logaritmo natural como un caso especial cuando $\lambda=0$:
 
@@ -197,13 +198,13 @@ evaluar_lambdas <- function(lambdas) {
   for (i in seq_along(lambdas)) {
     l <- lambdas[i]
     desvios <- df2 %>%
-      mutate(y = map_dbl(sobrevida, boxcox, lambda = l)) %>%
+      mutate(y = boxcox(sobrevida, lambda = l)) %>%
       group_by(veneno, trt) %>%
-      summarise(desvio = sd(y)) %>%
+      dplyr::summarise(desvio = sd(y)) %>%
       pull("desvio")
     tasas[i] <- max(desvios)/min(desvios)
   }
-  return(tibble(l = lambdas,t = tasas))
+  return(tibble(l = lambdas, t = tasas))
 }
 
 lambdas <- evaluar_lambdas(seq(-1.5, 0, 0.01))
@@ -211,10 +212,13 @@ lambdas <- evaluar_lambdas(seq(-1.5, 0, 0.01))
 lambdas %>%
   ggplot(aes(l, t)) +
   geom_line() +
-  labs(x = expression(lambda), y=expression(paste("max ", sigma, " / min ", sigma)))
+  geom_hline(yintercept = min(lambdas$t), linetype = "dotted") +
+  geom_vline(xintercept = lambdas$l[which.min(lambdas$t)], linetype = "dotted") +
+  labs(title = expression(paste("Razón del máximo al mínimo desvío por población para distintos ", lambda)),
+       x = expression(lambda), y=expression(paste("max ", sigma, " / min ", sigma)))
 ```
 
-Reducir la tasa de desvíos a 3.6 sigue sin ser suficiente para el criterio originalmente autoimpuesto, pero tampoco está demasiado lejos, y es una enorme mejoría respecto a la tasa original de más de 26, así que aplicaremos la transformación de Box-Cox y calificaremos momentáneamente de "tolerable" la heterocedasticidad restante. Lo que sí, para ayudar a la comprensión, en lugar de tomar el óptimo $\lambda^{\star}=-0.87$, tomaremos el mucho más interpretable $\lambda=-1$, que consigue una tasa de desvíos similar (4.12), pero provee una transformación más clara: $g(y) = 1 - \tfrac{1}{y}$, que cuando $y \in (1, + \infty) \Rightarrow g(y) \in (0, 1)$.
+Reducir la tasa de desvíos a 3.6 sigue sin ser suficiente para el criterio originalmente autoimpuesto, pero tampoco está demasiado lejos, y es una enorme mejoría respecto a la tasa original de más de 26, así que aplicaremos la transformación de Box-Cox y calificaremos momentáneamente de "tolerable" la heterocedasticidad restante. Lo que sí, para ayudar a la comprensión, en lugar de tomar el óptimo $\lambda^{\star}=-0.87$, tomaremos el mucho más interpretable $\lambda=-1$, que consigue una tasa de desvíos similar (4.12), pero provee una transformación más clara: $g(y) = 1 - \tfrac{1}{y}$, tal que cuando $y \in (1, + \infty) \Rightarrow g(y) \in (0, 1)$.
 
 Aplicamos la transformación, y volvemos a graficar los perfiles.
 
@@ -226,23 +230,29 @@ df2 %>%
   summarise_at(vars(y_), lst(mean, sd)) %>%
   ggplot(aes(mean, sd, color = trt, shape = veneno)) +
   geom_point() +
-  labs(x = "Media", y = "Desvío", shape = "Veneno", color = "Trat.")
+  labs(title = "Relación entre desvío y media muestral por población",
+     subtitle = "Datos transformados con g(y) = 1 - 1/y",
+     x = "Media", y = "Desvío", shape = "Veneno", color = "Trat.")
 
 g5 <- df2 %>%
   group_by(veneno, trt) %>%
   summarise_at(vars(y_), mean)%>%
   spread(veneno, y_) %>%
   ggparcoord(2:4, "trt") +
-  labs(title = "Sobrevida promedio por tratamiento",
-       x = "Veneno", y = "Sobrevida (hs)", color = "Trat.")
+  labs(title = "Dif. con la media por tratamiento",
+       x = "Veneno", y = "Sobrevida (hs)", color = "Trat.") +
+  theme(legend.position = "bottom")
+
 
 g6 <- df2 %>%
   group_by(veneno, trt) %>%
   summarise_at(vars(y_), mean)%>%
   spread(trt, y_) %>%
   ggparcoord(2:5, "veneno") +
-  labs(title = "Sobrevida promedio por veneno",
-       x = "Tratamiento", y = "Sobrevida (hs)", color = "Veneno")
+  labs(title = "Dif. con la media por veneno",
+       x = "Tratamiento", y = "Sobrevida (hs)", color = "Veneno") +
+  theme(legend.position = "bottom")
+
 
 grid.arrange(g5, g6, ncol = 2)
 
@@ -266,9 +276,7 @@ tidy(anova(mult)) %>%
 Efectivamente, no sólo el p-valor del estadístico F correspondiente a las interacciones es altísimo, sino que la razón entre los "cuadrados medios" de las interacciones y cualquiera de los tratamiento es realmente muy pequeña, así que podemos despreocuparnos de las interacciones. A continuación consideramos un modelo aditivo únicamente, y repetimos los tests de significativadad para los efectos principales, tanto de los tratamientos como de los venenos. Mantenemos la transformación de la variable respuesta con $\lambda = -1$, ya que la elección del parámetro se realizó independientemente del modelo a ajustar.
 
 $$
-\begin{split}
 y_{ijk} = \mu + \alpha_i + \beta_j + \epsilon_{ijk} \quad \text{con }\: \epsilon_{ijk} \sim N(0, \sigma^2)
-\end{split}
 $$
 
 Los principales descriptores del modelo muestran que
@@ -307,18 +315,26 @@ tidy(adit) %>%
   knitr::kable()
 ```
 
-Graficamos el módulo de los residuos estudentizados contra los valores ajustados $\widehat{g(y)}$, y nos tranquiliza la ausencia de estructura evidente. Hay una observación con un residuo $>2.5$ que puede merecer mayor consideración, pero resulta razonable dejarla así, ya que de quitarla el diseño deja de ser balanceado, y ya bastantes transformaciones hemos tenido que hacer para obtener el modelo actual:
+Graficamos el módulo de los residuos estudentizados contra los valores ajustados $\widehat{g(y)}$, y nos tranquiliza la ausencia de estructura evidente. Hay una observación con un residuo $>2.5$ que puede merecer mayor consideración, pero resulta razonable dejarla así, ya que de quitarla el diseño deja de ser balanceado, y ya bastantes transformaciones hemos tenido que hacer para obtener el modelo actual. Tampoco encontramos desviaciones egregias de la normalidad en el QQ-plot, así que consideramos aceptable al modelo.
+
 ```{r}
 augment(adit) %>%
   ggplot(aes(.fitted, abs(.std.resid), color = trt, shape = veneno)) +
-  geom_point()
+  geom_point() +
+  labs(title = "Residuos estudentizados en función del valor predicho",
+       x = expression(paste(hat(g),"(y)")), y = "Residuo estud.",
+       color = "Trat.", shape = "Veneno")
+
+augment(adit) %>%
+  ggplot(aes(sample = .resid)) +
+  geom_qq() +
+  geom_qq_line() +
+  labs(title = "QQ-plot de los residuos del modelo aditivo",
+     x = "Cuantil Teórico", y = "Residuo")
 ```
 
-Hasta ahora, hemos concluido que bajo una transformación $g$ de los datos,
-- las observaciones son aproximadamente homocedásticas, y
-- un modelo multiplicativo no aporta más que el aditivo para el análisis.
-
 Nos resta _describir_ la influencia de los venenos y los tratamientos en la sobrevida, con la complicación de que estamos trabajando sobre datos transformados. Como la trasformación es estrictamente creciente en la sobrevida, el signo de los efectos se mantiene. En principio en orden _creciente_ de sobrevida,
+
 - los venenos se ordenan $III<II<I$, y
 - los tratamientos se ordenan $A<C<D<B$.
 
@@ -338,7 +354,7 @@ tidy(TukeyHSD(aov(y_ ~ veneno + trt, df2))) %>%
   knitr::kable()
 ```
 
-La inferencia mas allá de estas conclusiones es algo limitada. En primer lugar, al no contar con un control, ni siquiera podemos argumentar que alguno de los tratamientos más efectivo que un simple placebo. Por otra parte, tampoco tenemos una forma directa de responder _por cuánto_ mejora la sobrevida en términos absolutos en la escala original. Lo que sí podemos dar, es tomar $g^{-1}(\hat{\mu}+\hat{\alpha}_i+\hat{\beta}_j)$ como una aproximación de la sobrevida media para cada combinación de venenos y tratamientos. Ordenadas por $g^{-1}$, tenemos:
+La inferencia mas allá de estas conclusiones es algo limitada. En primer lugar, al no contar con un control, ni siquiera podemos argumentar que alguno de los tratamientos sea más efectivo que un simple placebo. Por otra parte, tampoco tenemos una forma directa de responder _por cuánto_ mejora la sobrevida en términos absolutos en la escala original. Lo que sí podemos ofrecer, es $g^{-1}(\hat{\mu}+\hat{\alpha}_i+\hat{\beta}_j)$ como una aproximación de la sobrevida media para cada combinación de venenos y tratamientos. Ordenadas por $g^{-1}$, tenemos:
 
 ```{r}
 ginv <- function(y) {1/(1-y)}
@@ -422,8 +438,14 @@ La dosis de la substancia B parece afectar la proporción de células aberrantes
 A continuacón, hemos de elegir un modelo a ajustar. Una primera condición necesaria, será que estime idénticamente la proporción de células aberrantes cuando la dosis de la sustancia aplicada es nula. En segundo lugar, ya que no contamos con observaciones con dosis positivas de ambas sustancias, no tenemos otra opción más que considerar efectos aditivos, aunque químicamente resulte ingenuo tal planteo. Por último, considerando el gráfico anterior, plantearemos una relación dosis-respuesta cuadrática en la sustancia A. En un principio, tal idea puede resultar un mero artilugio matemático para "ajustar mejor", pero una somera búsqueda por la internet indica que existe tal cosa como una relación [dosis-respuesta cuadrática](https://www.rerf.or.jp/en/glossary/linquadra-en/). En [este](https://www.ncbi.nlm.nih.gov/pubmed/9566812) trabajo por ejemplo, los investigadores encuentran que un modelo cuadrático en la dosis de cafeína estima mucho mejor que otro lineal la actividad cerebral registrada en un electroencefalograma (EEG). Sean, para cada observación, $p, d_A, d_B, n$ la proporción de células aberrantes, la dosis de las sustancias A y B, y en número de células muestreadas, respectivamente. Además, llamemos $\pi$ a la proporción de células aberrantes "basal", en ausencia de sustancia alguna. Nuestro modelo será:
 
 $$
-p_i = \pi + \beta_1 \: d_{A,i} + \beta_2 \:(d_{A,i})^2 + \beta_3 \:d_{B,i} + \beta_4 \:d_B + \beta_5 \: n_i +\epsilon_i \quad \text{con } \epsilon_i \sim N(0, \sigma^2)
+p_i = \pi + \beta_1 \: d_{A,i} + \beta_2 \:(d_{A,i})^2 + \beta_3 \:d_{B,i} + \beta_4 \: n_i +\epsilon_i \quad \text{con } \epsilon_i \sim N(0, \sigma^2)
 $$
+
+```{r}
+df3long <- df3 %>%
+  spread(sustancia, dosis, fill = 0, sep = "")
+```
+
 
 ```{r, eval = FALSE}
 formulas <- list(
@@ -447,14 +469,9 @@ modelos <- tibble(
   unnest(resumen)
 ```
 
-
-
 El ajuste es _sorprendentemente_ bueno, para lo descorazonadores que resultaban los datos originalmente. A continuación presentamos un resumen de los estadísticos principales, incluido el R^2 ajustado, el p-valor del test F de significatividad global, y los coeficientes estimados:
 
 ```{r}
-df3long <- df3 %>%
-  spread(sustancia, dosis, fill = 0, sep = "")
-
 lm3 <- lm(prop ~ poly(sustanciaA, 2) + poly(sustanciaB, 1) + muestreadas, df3long)
 
 glance(lm3) %>%
@@ -474,15 +491,28 @@ tidy(lm3) %>%
   knitr::kable()
 ```
 
-Tenemos muy pocos puntos como para observar tendencias en los residuos estudentizados en función de las proporciones predichas, pero lo que sí vemos, es que son todos realmente pequeños:
+Tenemos muy pocos puntos como para observar tendencias en los residuos estudentizados en función de las proporciones predichas, pero lo que sí vemos, es que son todos realmente pequeños.
 ```{r}
 augment(lm3, data = df3long) %>%
   ggplot(aes(.fitted, .std.resid)) +
   geom_point() +
   labs(title = "Residuos estudentizados en función de la proporción predicha",
        x = expression(hat(p)[i]), y = "Res. est.")
+
+augment(lm3, data = df3long) %>%
+  ggplot(aes(sample = .resid)) +
+  geom_qq() +
+  geom_qq_line() +
+  labs(title = "QQ-plot de los residuos de predicción",
+     x = "Cuantil Teórico", y = "Residuo")
+
+shapiro3 <- augment(lm3, data = df3long) %>%
+  pull(".resid") %>%
+  shapiro.test()
 ```
 
+Por su parte, el QQ-plot no es muy satisfactorio, pero al mismo tiempo, con tan pocos datos, realmente no podíamos esperar nada mucho mejor. De hecho, para un $n$ tan pequeño, la mera elección de la secuencia de cuantiles de la distribución normal a comparar se vuelve determinante, y no hay test "numérico" que nos permita rechazar la normalidad (en este caso, por ejemplo, el test de Shapiro-Wilks univariado da un p-valor de `r signif(shapiro3$p.value, 3)`) .
+ 
 Los coeficientes de $\pi$ (`(Intercept)`) y $n_i$ (`muestreadas`) son significativos a nivel $\approx 0.05$, mientras que los de $d_A, d_B$ son significativos a nivel $<0.001$. Como la regresión fue hecha sobre covariables generadas usando la función `poly` que computa polinomios _ortogonales_ para las dosis de sustancia, ninguno de los coeficientes se presta a una interpretación directa, ni siquiera la ordenada $\pi$. Lo que sí podemos hacer con las herramientas disponibles, es elegir una grilla de valores de $n, d_A, d_B$, realizar predicciones con el modelo ajustado y graficarlas. Así, se observa la principal limitación del enfoque elegido: para dosis por encima de 200 mg/ml (por fuera del soporte de los datos), el efecto de la sustancia A da predicciones _negativas_ para la proporción de células aberrantes:
 
 ```{r}
@@ -506,6 +536,6 @@ augment(lm3, newdata = grilla) %>%
   geom_point(data = df3) +
   scale_linetype_manual(values = c("dotted", "dashed")) + 
   coord_cartesian(ylim = c(0, 0.081)) +
-  labs(title = "Predicción de la roporción de células aberrantes para tamaños de muestra seleccionados",
+  labs(title = "Proporción de células aberrantes predicha para valores seleccionados",
        linetype = "n")
 ```
