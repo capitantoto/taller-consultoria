@@ -1,0 +1,121 @@
+---
+title: "Taller de Consultoria - TP5"
+author: "Gonzalo Barrera Borla"
+date: "13/11/2019"
+header-includes:
+   - \usepackage[version=4]{mhchem}
+output:
+  pdf_document: default
+urlcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+options(tinytex.verbose = TRUE)
+```
+
+# Setup
+```{r, echo = T}
+library(tidyverse) # manipulación de datos en general, graficos
+library(broom) # limpieza y estructuracion de resultados de regresiones
+library(caret) # Validación cruzada para múltiples modelos
+```
+
+# Ejercicio 2
+
+> Los siguientes datos corresponden a un trabajo para determinar la composición de un conjunto de vasijas de vidrio de un yacimiento arqueológico. Como el análisis espectrométrico es más barato que el análisis químico, se procuró calibrar el primero para que reemplace al segundo. Con este objetivo se tomó una muestra de 180 vasijas, a las que se realizó una espectrometria de rayos X sobre 1920 frecuencias, y también un análisis de laboratorio para determinar el contenido de 13 compuestos químicos, a saber:
+
+> $$\ce{Na2O} \quad \ce{MgO} \quad \ce{Al2O3} \quad \ce{SiO2} \quad \ce{P2O5} \quad \ce{SO3} \quad \ce{Cl} \quad \ce{K2O} \quad \ce{CaO} \quad \ce{MnO} \quad \ce{Fe2O3} \quad \ce{BaO} \quad \ce{PbO} $$
+
+>  Cada fila del archivo Vessel_X es el espectro de una vasija, limitado a las frecuencias 100 a 400, pues las demás tienen valores casi nulos. Cada fila del archivo Vessel_Y tiene los contenidos de los 13 compuestos en esa vasija. Se trata de predecir el compuesto 1 (óxido de sodio) usando sólo las columnas 10, 20,... etc. de X.
+
+> 1. Para familiarizarse con los datos, grafique en función de la frecuencia las medias y varianzas de X, y también algunos espectros.
+
+> 2. Luego tome una muestra al azar de 120 vasijas. Con ella calcule los estimadores de mínimos cuadrados, Forward y Backward; y cualquier otro que se le ocurra. Para cada estimador estime el error cuadrático medio de predicción (ECM).
+
+> 3. Luego aplíquelos a las otras 60 vasijas  para estimar el error de predicción (este será insesgado). Compare los estimadores, y también compare las estimaciones del ECM con el inicial.
+
+Observando detenidamente los datos y consultando con allegados capacitados en la materia, podemos concluir que
+- la técnica de espectroscopía utilizada es la "fluorescencia de rayos X", 
+- las frecuencias del espectro están medidas en Ghz ($1\times10^9\text{s}^{-1}$), y
+- las "cantidades" de cada compuesto, son en realidad el porcentaje masa/masa (% m/m) de los óxidos en cada muestra ($100 \times \tfrac{\text{masa compuesto}}{\text{masa muestra}}$).
+
+Al exponer un material a rayos X de longitudes de onda cortas o a rayos gamma, pueden ionizarse los átomos que constituyen el material. La ionización consiste en eyección de uno o más electrones desde el átomo. Tanto los rayos X como los gamma pueden ser suficientemente energéticos para desprender electrones fuertemente ligados en los orbitales internos del átomo. Tal remoción electrónica deja en condición inestable a la estructura electrónica del átomo, y los electrones de orbitales más elevados «caen» hacia el orbital más bajo, que luego ocupan los huecos de los electrones internos desprendidos. En esta caída, o transición, se genera energía mediante emisión de un fotón. El valor de la energía de este corpúsculo es igual a la diferencia de energía entre los dos orbitales involucrados.
+
+Cada elemento posee orbitales electrónicos de energías características. Al producirse la remoción de un electrón de una capa interior por un fotón energético proveniente de una fuente primaria de radiación, un electrón de una capa exterior se desplaza y ocupa el hueco que se había formado. Existe una cantidad finita de variantes de esta transición (entre pares de capas electrónicas) y a las transiciones principales se les han asignado nombres: $K_{\alpha}, K_{\beta}, L_{\alpha}, \dots$. Cada una de estas transiciones produce un fotón fluorescente dotado de una energía característica que es igual a la diferencia de energía entre los orbitales inicial y final. La longitud de onda de esta radiación fluorescente se puede calcular a partir del postulado de Planck $\lambda = h \cdot c / E$, o si se prefiere, las longitudes de onda $\lambda$ características se pueden expresar como frecuencias, $f = c / \lambda$.
+
+Por ejemplo, la longitud de onda correspondiente a la linea espectral $K_{\alpha}$ para el sodio (Na) es de 1.191 nanómetros, que nos da una frecuencia equivalente de $\tfrac{299,792,458 \:\text{m/s}}{1.191 \times 10^{-9}\text{m}} = 251.7 \times 10^{15} \text{s}^{-1} = 251.7 \: \text{PHz}$.
+
+```{r}
+vluz <- 299792458
+lambdaNa <- 1.191 * 10^-9
+vluz/lambdaNa
+```
+
+A continuación, graficaremos los espectros para las vasijas 60 y 83, que son las de menor (0.986% m/m) y mayor (17.586% m/m) concentración de óxido de sodio, respectivamente.
+
+```{r}
+df %>%
+  gather("freq", "value", -vasija, -Na2O) %>%
+  mutate(
+    vasija = as_factor(vasija),
+    freq = as.integer(freq)) %>%
+  filter(vasija %in% c(60, 83)) %>%
+#  filter(freq >= 230, freq <= 280) %>%
+  ggplot(aes(freq, value, color = factor(vasija))) +
+  geom_line() +
+  geom_vline(xintercept = vluz/lambdaNa*10^-15, alpha = 0.3) +
+  labs(x = "Frecuencia [PHz]", y = "Intensidad de emisión", color = "Vasija")
+
+dfy %>%
+  filter(vasija %in% c(83, 60)) 
+  ggplot(aes(Na2O)) +
+  geom_density()
+
+dfy %>% arrange(-Na2O)
+```
+
+A pesar de que el espectro de la vasija 60 presenta picos muy superiores a los de la 83 en varias frecuencias, en la frecuencia teóricamene calculada para el sodio, la vasija 83 tiene un pico _relativamente_ mucho más alto.
+
+Aquí se nos presenta 
+
+En un procedimiento 1. Tomar una muestra de referencia, con una cantidad _conocida_ del elemento a medir, y pasarla por el espectrómetro.
+
+Tener la variable respuesta medida en %m/m resulta inconveniente, ya que una muestra A podría tener un menor %m/m pero mayor masa absoluta de $\ce{Na2O}$ que otra muestra B, siempre y cuando la masa total de A sea lo suficientemente mayor a la de B. Luego, **el primer supuesto que haremos es que las muestras de cada vasija tienen la misma masa**.
+- cada fila de `Vessel_X` es el valor
+```{r}
+library(leaps)
+regb <- regsubsets(formula(formulas$mod10), df, nvmax = 31, method = "backward")
+regf <- regsubsets(formula(formulas$mod10), df, nvmax = 31, method = "forward")
+rega <- regsubsets(formula(formulas$mod10), df, nvmax = 31, method = "exhaustive")
+s.regb <- summary(regb)
+s.rega <- summary(rega)
+s.regf <- summary(regf)
+
+tibble(
+  nvar = 1:31,
+  adjr2 = s.regf$bic) %>%
+  ggplot(aes(nvar, adjr2)) +
+  geom_line()
+
+which.max(summary(regb)$adjr2)
+summary(regf)$which[which.min(summary(regf)$bic),]
+```
+
+```{r}
+train(formula(formulas$mod10), method = "leapBackward", data = df, trControl = trCont, tuneGrid=data.frame(nvmax = 31))
+
+library(caret)
+trCont <- trainControl(method = "LGOCV", number = 100, p = 0.7)
+resumen <- tibble(
+  formula = map(formulas, formula),
+  train = map(formula, train, method = "lm", data = df, trControl = trCont)
+) %>%
+  mutate(resultados = map(train, "results")) %>%
+  unnest(resultados) %>%
+  select(-train)
+t0 <- train(formula(formulas$mod10), method = "lm", data = df, trControl = trainControl(method = "none"))
+
+```
+
+
