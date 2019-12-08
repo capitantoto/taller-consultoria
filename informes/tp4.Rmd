@@ -178,7 +178,7 @@ df1full %>%
 shapiro1 <- shapiro.test(df1full$.resid)
 ```
 
-Lamentablemente, el gráfico cuantil-cuantil de los residuos de predicción revela que el supuesto de normalidad en los $\epsilon_{ij}$ no es realmente sostenible. Un test de normalidad tradicional como el de Shapiro-Wilks arroja un p-valor de `r signif(shapiro1$p.value, 2)`, pero un buen gráfico vale más que mil tests. Intentamos remover iterativamente las observaciones con residuos más extremos y volver a ajustar el cojunto de modelos planteados, pero recién después de remover 8 observaciones conseguimos un ajuste razonable del QQ-plot. En todo ese proceso, $p \sim tratamiento + t$ siguió siendo siempre el mejor modelo según la R1DE, por lo que preferimos mantener el dataset completo y reportar estadísticos y coeficientes del ajuste con todos los datos.
+Lamentablemente, el gráfico cuantil-cuantil de los residuos de predicción revela que el supuesto de normalidad en los $\epsilon_{ij}$ no es realmente sostenible. Sin embargo, en este caso la distribución de los residuos se diferencia de la normal, en que tiene colas _más livianas/cortas_ que aquéfilter(df2, !loc %in% best_low)lla, en lugar de más pesadas/largas. Luego, es sostenible que esta violación del supuesto de normalidad no afecte significativamente los resultados.
 
 A pesar de la evidente heterocedasticidad original de las observaciones, hemos obtenido un ajuste bastante satisfactorio para los datos, con una directa interpretación física. Sabemos que cuando asumimos erróneamente una matriz de covarianza $\sigma^2 I_n$ en lugar de la verdadera $V$, los estimadores de los parámetros del modelo $\hat{\beta}$ son insesgados, pero no los de menor varianza. Así y todo, hemos obtenido unos estimadores indudablemente distintos a cero, con lo cual podemos en principio confiar en ellos, ya que de usar la verdadera matriz de covarianza su significación debería mejorar.
 
@@ -240,37 +240,27 @@ Dado que las varianzas entre diferentes poblaciones son tan heterogéneas, no po
 
 > Se dan los rendimientos de 4 variedades de trigo en 13 localidades de Oklahoma. Interesa determinar qué variedades son  recomendables.
 
-Inmediatamente se observa que no sólo la media de los rendimientos varía considerablemente entre localidades, sino que el rango de rendimientos para cada localidad es sumamente variable:
+Si graficamos los perfiles de rendimiento en función de la localidad, con las localidades ordenadas crecientemente en rendimiento promedio para mejroar la visibilidad, vemos que las variedades de maíces se entremezclan en las localidades de menor rinde, y se separan un poco mejor en las de mayor rinde, aunque todavía con cruzamientos significativos para las variedades 1, 2 y 4:
+
 ```{r}
 tipo_cols <- cols(
   loc = col_factor(),
   var = col_factor(),
   rend = col_double()
 )
-df2 <- read_csv("../data/4-2.csv", col_types = tipo_cols)
-df2 %>%
-  group_by(loc) %>%
-  summarise(
-    delta = max(rend) - min(rend),
-    media = mean(rend)) %>%
-  arrange(desc(delta)) %>%
-  knitr::kable(col.names = c("Loc.", "Rango", "Media"), digits = 2)
+df2 <- read_csv("../data/4-2.csv", col_types = tipo_cols) %>%
+  mutate(loc = fct_reorder(loc, rend, mean))
 
 df2 %>%
-  group_by(loc) %>%
-  summarise(
-    max = max(rend),
-    avg = mean(rend),
-    min = min(rend)) %>%
-  arrange(avg) %>%
-  ggplot(aes(fct_reorder(loc, avg), avg)) +
+  ggplot(aes(loc, rend, color = var, group = var)) +
   geom_point() +
-  geom_segment(aes(y = min, yend = max, xend = fct_reorder(loc, avg))) +
-  labs(title = "Media y rango de los rendimientos por localidad",
-       x = "Localidad", y = "Rendimiento")
+  geom_line(linetype = "dashed") +
+  labs(title = "Rinde promedio por variedad y localidad",
+       x = "Localidad", y = "Rinde", color = "Variedad")
 ```
 
-De lo expuesto resulta improbable que un análisis de la varianza de dos factores "directo" nos provea mucha información útil. En principio, al tener sólo una observación por "celda" (combinación de bloque y tratamiento), sólo podemos plantear un modelo aditivo o con alguna interacción limitada como la que propone Tukey con su invento de "1 grado de libertad para la no-aditividad". En efecto, si ajustamos un modelo del estilo $rinde \sim variedad + localidad$, tanto la localidad como las variedades parecen sumamente significativas, pero el gráfico de los residuos versus predichos tiene una clara estructura "parabólica":
+En efecto, si ajustamos un modelo del estilo $rinde \sim variedad + localidad$, tanto la localidad como las variedades parecen sumamente significativas, pero el gráfico de los residuos versus predichos tiene forma de "mariposa", lo cual nos hace sospechar de la existencia de interacciones significativas:
+
 
 ```{r}
 lm2 <- lm(rend ~ loc + var, df2)
@@ -282,62 +272,162 @@ augment(lm2, df2) %>%
        x = "Rinde predicho", y = "Residuo")
 ```
 
-Si graficamos los perfiles de rendimiento en función de la localidad, con las localidades ordenadas crecientemente en rendimiento promedio para mejroar la visibilidad, vemos que las variedades de maíces se entremezclan en las localidades de menor rinde, y se separan un poco mejor en las de mayor rinde, aunque todavía con cruzamientos significativos para las variedades 1, 2 y 4.
+Al tener una sola observación por celda, no podemos plantear un modelo con interacciones "completas", ya que nos quedaríamos sin grados de libertad para estimar los residuos. En su lugar, podemos plantear un modelo menos ambicioso, como el de "1 GL para la no-aditividad" de Tukey. Comenzamos por agregar una nueva covariable al modelo, $\text{int}=\hat{\alpha}_i\times \hat{\beta}_j$, donde $\alpha_i,\beta_j$ son los coeficientes qeu acompañan a la localidad $i$ y la variedad $j$, y los "sombreros" indican que los hemos estimado (como la diferencia entre la media general, y las medias por localidad y variedad, respectivamente). 
 
+La estructura de los residuos no desaparece del todo - y aparecen algunos potenciales outliers -, pero si observamos la "tabla de ANOVA" tradicional, vemos que la inclusión del término interactivo reduce aproximadamente a la mitad la suma de cuadrados no explicada.
 ```{r}
-df2 <- df2 %>%
-  mutate(loc = fct_reorder(loc, rend, mean))
+df2_ <- df2 %>%
+  mutate(gm = mean(rend)) %>%
+  group_by(var) %>% mutate(varm = mean(rend) - gm) %>% ungroup() %>%
+  group_by(loc) %>% mutate(locm = mean(rend) - gm) %>% ungroup() %>%
+  mutate(int = varm*locm)
 
-df2 %>%
-  ggplot(aes(loc, rend, color = var, group = var)) +
+lm2_ <- lm(rend ~ loc + var + int, df2_)
+lambdahat <- lm2_$coefficients["int"]
+tidy(anova(lm2)) %>%
+  select(term, df, sumsq) %>%
+  knitr::kable(digits = 0, col.names = c("Término", "GL", "Suma Cuad."), caption = "Modelo aditivo")
+
+tidy(anova(lm2_)) %>%
+  select(term, df, sumsq) %>%
+  knitr::kable(digits = 0, col.names = c("Término", "GL", "Suma Cuad."), caption = "Modelo aditivo con 1 GL para interacción")
+
+augment(lm2_, df2_) %>%
+  ggplot(aes(.fitted, .std.resid)) +
   geom_point() +
-  geom_line(linetype = "dashed") +
-  labs(title = "Rinde promedio por variedad y localidad",
-       x = "Localidad", y = "Rinde", color = "Variedad")
+  labs(title = "Residuos en función de rindes predichos para el modelo de Tukey",
+       x = "Rinde predicho", y = "Residuo")
 ```
 
-Aquí se nos plantea una disyuntiva: por un lado, podríamos considerar por separado los dos regímenes de ciudades antes mencionados: 
+A esta altura, tenemos evidencia irremontable a favor de la existencia de interacciones, lo cual resultaba intuitivamente obvio al ver el gráfico de perfiles. ¿Cómo continuamos el análisis, si todavía pretendemos dar alguna recomendación sobre qué variedades convienen en cada localidad? Usando el modelo con 1GL para las interacciones, podríamos ordenar las variedades según las predicciones en cada localidad, pero deberíamos dar una recomendación distinta en cada una, lo cual no es mucho mejor que simplemente mirar los datos crudos.
 
-- las de "bajo rinde" (12, 3, 11, 4, 9, y 6) con perfiles muy superpuestos y rangos de valores más "apretados", y
-- las de "alto rinde" (2, 1, 5, 10, 8, 13 y 7), con perfiles mejor separados, y mayores rangos de valores.
+Una alternativa algo más parsimoniosa, consiste en plantear la existencia de dos subconjuntos de localidades, dentro de los cuales el modelo aditivo es sostenible, y por ende es factible dar una recomendación general. Con 13 localidades, e ignorando subconjuntos vacíos, hay $2^{12}-1=4095$ particiones posibles, con lo cual el enfoque de "probarlas todas" no resulta factible. En su lugar, vamos a considerar las 12 particiones que surgen de ordenar las localidades de menor a mayor rinde promedio, y separar las $i \in \{1,\dots,12\}$ de menor rinde por un lado (digamos, donde $rindeBajo =1$), y las $13 - i$ de mayor rinde por otro. Para cada una de las 12 particiones, ajustaremos un modelo del estilo $rinde \sim localidad + variedad \times rindeBajo$, con distintos coeficientes para cada variedad dependiendo del régimen de la localidad. Incluimos la "no-partición" con las 13 localidadades en el regímen de rinde bajo como testigo.
 
-Por otra parte, podríamos mantener todas las observaciones juntas, y considerar algún test no paramétrico con pocos supuestos sobre los datos, para ver si podemos obtener alguna conclusión global. En esta línea, surgen naturalmente dos tests para diseños en bloque completos sin replicación: el test de Friedman (análogo al test del signo para varias muestras), y el test de Quade (análogo al test de Wilcoxon de rangos signados). 
+Para morigerar la posibilidad de sobreajuste, compararemos los 12 modelos a través de la raíz del ECM ($\widehat{RMSE}$), estimada con una estrategia de validación cruzada exigente (40 repeticiones de 10-fold CV). Los resultados obtenidos son:
 
-Siguiendo a Conover [1999, pp. 369-375], los supuestos necesarios para estos tests no paramétricos son mínimos. Ambos requieren que (i) los bloques sean independientes entre sí y que (ii) las observaciones en cada bloque sean ordenables según algún criterio. Para el test de Quade, se pide además que (iii) los bloques se puedan ordenar por su rango muestral. En estos datos los tres supuestos se cumplen, pero nos inclinaremos por el test de Quade, que entendemos aprovechará mejor la información pertinente a la amplitud de rangos intra-bloques.
+```{r cache = T}
+locs <- levels(df2$loc)
+nlocs <- length(locs)
+cortes <- list()
+trCont <- trainControl(method = "repeatedcv", number = 10, repeats = 40)
+f <- rend ~ (loc + var) * low
+obs <- df2$rend
+for (i in seq_along(locs)) {
+  low_locs <- locs[1:i]
+  df2_cut <- mutate(df2, low = loc %in% low_locs)
+  lmObj <- lm(f, df2_cut)
+  pred <- predict(lmObj)
+  trainObj <- train(f, df2_cut, method = "lm", trControl = trCont)
+  res <- list(
+    low = paste(low_locs, collapse = ", "),
+    lmObj = lmObj,
+    trainObj = trainObj,
+    rmse_train = caret::RMSE(pred, obs),
+    rmse_test = trainObj$results$RMSE,
+    rmse_test_sd = trainObj$results$RMSESD
+  )
+  cortes <- c(cortes, list(res))
+}
+```
 
-En ambos casos, asumimos que si $X_{ij}$ es el rinde de la j-ésima variedad en la i-ésima localidad, $X_{ij} \sim F_i(x-\theta_j), F_i \in \Omega_0 \: \forall \: i\in\{1,\dots,13\}, \: j \in \{1,\dots,4\}$ son todas VA independientes. Es decir que $F_i$ es la distribución de las observaciones del i-ésimo bloque (localidad), y dentro del bloque $\theta_j$ es la mediana del j-ésimo tratamiento (variedad). La hipótesis nula será $H_0: \theta_i = \theta_j \forall i,j$, y la alternativa su complemento (i.e., al menos dos medianas son distintas entre sí).
+
+```{r cache = T}
+res <- transpose(cortes) %>%
+  as_tibble() %>%
+  mutate_at(c("rmse_test", "rmse_test_sd", "low", "rmse_train"), unlist) %>%
+  select(-lmObj, -trainObj) %>%
+  arrange(rmse_test)
+
+knitr::kable(res, digits = 2, col.names = c("Rinde Bajo", "RMSE Train", "RMSE Test", "Desvío RMSE Test"))
+```
+
+Una vez más, los cálculos confirman la intuición. Casi cualquier partición mejora el RMSE de prueba del modelo indiviso, y la partición "óptima" considera a las localidades 12, 3, 11, 4, 9, 6 como parte de un régimen (bajo rinde, poco diferenciable) y el resto como parte de otro (alto rinde, bien diferenciables), exactamente como uno hubiese separado las localidades al ver el gráfico de perfiles original. En este punto, vale mencionar que de seguir la regla sugerida por el modelo de 1GL de Tukey, y considerar las particiones determinadas por $1 + \hat{\lambda}\times\hat{\alpha}_i > 0$, la partición hubiese resultado en $\{12, 3\}$, o si uno desea ser un poco más generoso con los márgenes y pedir que $1 + \hat{\lambda}\times\hat{\alpha}_i > 1$, el resultado sería $\{12, 3, 11, 4\}$: ninguna de las dos resulta muy buena al evaluarlas con validación cruzada.
+
+Los residuos de este modelo aditivo en 2 grupos no evidencian estructura obvia, y el QQ-plot muestra pocos desvíos de los cuantiles teóricos. 
 
 ```{r}
-mat2 <- df2 %>% spread(var, rend) %>% select(2:5) %>% as.matrix
-dimnames(mat2) <- list(1:13, 1:4)
-fried2 <- friedman.test(mat2)
-quade2 <- quade.test(mat2)
+best_low <- c(12, 3, 11, 4, 9, 6)
+df2 <- df2 %>%
+  mutate(low = loc %in% best_low)
+
+lm2_all <- lm(rend ~ loc + var * low, df2)
+lm2_low <- lm(rend ~ loc + var * low, filter(df2, loc %in% best_low))
+lm2_high <- lm(rend ~ loc + var * low, filter(df2, !loc %in% best_low))
+
+augment(lm2_all, df2) %>%
+  ggplot(aes(.fitted, .std.resid, color = low)) +
+  geom_point() +
+  labs(title = "Residuos en función de predichos para el modelo aditivo con 2 grupos",
+       x = "Rinde predicho", y = "Residuo")
+
+augment(lm2_all, df2) %>%
+  ggplot(aes(sample = .resid)) +
+  geom_qq() +
+  geom_qq_line() +
+  labs(title = expression(paste("QQ-plot de residuos para el modelo aditivo con 2 grupos")),
+       x = "", y = "") +
+  theme(legend.position = "none")
 ```
 
-Sin demasiada confianza en poder obtener resultados muy significativos, elegimos a priori un nivel de significación $\alpha=0.1$. El test de Quade arroja un p-valor de `r signif(quade2$p.value, 3)`, que nos lleva a rechazar la hipótesis nula con seguridad. De aplicar el test de Friedman, obtenemos un p-valor de `r signif(fried2$p.value, 3)`, más moderado pero aún contundente. Resulta tranquilizador saber que aún sin aprovechar la información sobre el rango de los bloques, hubiésemos rechazado la hipótesis nula. 
-
-Hasta aquí sabemos que no todas las variedades tienen el mismo rendimiento, pero aún nos resta saber cuáles son significativamente distintas de las demás. En principio, los rendimientos promedios resultan ser
+Como hemos utilizado los mismo datos para la elección y el ajuste del modelo, no podemos hacer interpretaciones formales de los tradicionales p-valores de significatividad global, de los coeficientes, y en comparaciones múltiples, pero los presentamos a modo ilustrativo, para dar una idea intuitiva de lo conseguido. Para facilitar la comprensión, presentamos los estadísticos de significatividad global, efectos principales e interacciones para el modelo "completo", y los coeficientes de la regresión de cada regímen por separado:
 
 ```{r}
-colMeans(mat2) %>% sort %>% t %>%
-  knitr::kable(digits = 2)
+glance(lm2_all) %>%
+  transmute(
+    "R^2 aj." = as.character(signif(adj.r.squared, 3)),
+    "F obs." = as.character(signif(statistic, 3)),
+    "P-valor" = as.character(signif(p.value, 3))
+  ) %>%
+  knitr::kable()
+
+tidy(anova(lm2_all)) %>%
+  transmute(
+    "Coefs" = term,
+    "GL" = df,
+    "C. Medios" = as.character(signif(statistic, 3)),
+    "F obs." = as.character(signif(statistic, 3)),
+    "P-valor" = as.character(signif(p.value, 3))
+  ) %>%
+  knitr::kable()
 ```
 
-Siguiendo a Conover, al haber rechazado la hipótesis nula, podemos realizar un test de comparaciones múltiples, manteniendo el $\alpha=0.1$ original. Acudimos al paquete `PMCMRplus`, que implementa comparaciones múltiples "post-hoc" para una amplia variedad de tests basados en la suma de rangos medios, y obtenemos los siguientes p-valores:
 
 ```{r}
-quade_posthoc <- PMCMRplus::quadeAllPairsTest(mat2)
-quade_posthoc$p.value %>%
-  knitr::kable(digits = 3)
+tidy(lm2_low) %>%
+  transmute(
+    "Coef." = term,
+    "Estimado" = as.character(signif(estimate, 3)),
+    "P-valor" = as.character(signif(p.value, 3))
+  ) %>%
+  knitr::kable(caption = "Coeficientes para localidades de bajo rinde.")
+
+tidy(lm2_high) %>%
+  transmute(
+    "Coef." = term,
+    "Estimado" = as.character(signif(estimate, 3)),
+    "P-valor" = as.character(signif(p.value, 3))
+  ) %>%
+  knitr::kable(caption = "Coeficientes para localidades de alto rinde.")
 ```
 
-En otras palabras, a nivel $\alpha = 0.1$,
+Para concluir, presentamos los IC simultáneos "honestos" de Tukey para diferencia de medias entre variedades, para cada regímen por separado:
 
-- la variedad 1 es mejor que la 2 y 3, pero no se peude distinguir de la 4,
-- la variedad 4 es mejor que la 3, pero no se puede distinguir de la 2,
-- las variedades 2 y 3 no se pueden distinguir.
+```{r}
+TukeyHSD(aov(lm2_low))$var %>%
+  knitr::kable(digits = 3, col.names = c("Estimado", "Lím. inf. IC", "Lím. sup. IC", "P-valor"),
+               caption = "ICs para diferenciasentre variedades, en localidades de bajo rinde.")
+TukeyHSD(aov(lm2_high))$var %>%
+    knitr::kable(digits = 3, col.names = c("Estimado", "Lím. inf. IC", "Lím. sup. IC", "P-valor"),
+                 caption = "ICs para diferenciasentre variedades, en localidades de bajo rinde.")
+```
 
-De tener que recomendar una sola variedad, y asumiendo que no hay ningún otro factor decisivo (como ser el precio del grano, la dificultad de su cultivo, las leyes locales, et cetera), nos inclinaríamos por la 1. Nótese que de haber elegido un criterio sólo un poco más restrictivo, como ser $\alpha = 0.5$, sólo "la mejor" y "la peor" variedad (1 y 3) se llegan a distinguir entre sí.
+Aún asumiendo que los p-valores de los intervalos de confianza simultáneos estén "inflados" por la selección de modelos, es razonable concluir que:
+
+- en localidades de rindes bajos (12, 3, 11, 4, 9, y 6), las variedades de trigo son indistinguibles entre sí, y
+- en localidades de rindes altos (2, 1, 5, 10, 8, 13 y 7), 
+  - la variedad 1 es claramente mejor que todas las demás,
+  - las variedades 2 y 4 son prácticamente idénticas, y
+  - las variedades 2 y 4 son un algo mejores que la 3.
 
 # Ejercicio 3
 
@@ -367,12 +457,12 @@ df3 %>%
        x = "Bloque", y = "Larvas", color = "Emulsión")
 ```
 
-Una primera aproximación _inercial_ (en tanto está influida por la metodología del ejercicio anterior), nos lleva a
+Una primera aproximación _inercial_ nos lleva a
 
 - como no contamos con información extra sobre la existencia o no de diferencias entre los controles, y los perfiles no son muy similares, _considerar los dos controles por separado_ y
 - asumiendo que la decisión de contar en sólo 2 de los 9 cuadraditos por bloque fue para ahorrar trabajo, _sumar los dos subbloques_ por celda y considerar una única observación.
 
-Y sin hacer más supuestos sobre las distribuciones, intentamos aplicar un test no paramétrico para la diferencia de medianas. Si agrupamos los subbloques y consideramos los rangos y promedios por bloque,
+Y sin hacer más supuestos sobre las distribuciones, intentar aplicar un test no paramétrico para la diferencia de medianas. Si agrupamos los subbloques y consideramos los rangos y promedios por bloque,
 ```{r}
 df3_ <- df3 %>%
   mutate(blq = fct_reorder(as_factor(blq), larvas, mean)) %>%
