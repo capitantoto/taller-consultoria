@@ -17,6 +17,7 @@ options(tinytex.verbose = TRUE)
 # Setup
 ```{r, echo = T}
 library(tidyverse) # manipulación de datos en general, graficos
+library(leaps) # Estimadores forward, backward, exhaustive & stepwise
 library(broom) # limpieza y estructuracion de resultados de regresiones
 library(caret) # Validación cruzada para múltiples modelos
 ```
@@ -37,24 +38,37 @@ library(caret) # Validación cruzada para múltiples modelos
 
 Observando detenidamente los datos y consultando con allegados capacitados en la materia, podemos concluir que
 - la técnica de espectroscopía utilizada es la "fluorescencia de rayos X", 
-- las frecuencias del espectro están medidas en Ghz ($1\times10^9\text{s}^{-1}$), y
+- las frecuencias del espectro están medidas en PHz (peta-hertz, $1\times10^{15}\text{s}^{-1}$), y
 - las "cantidades" de cada compuesto, son en realidad el porcentaje masa/masa (% m/m) de los óxidos en cada muestra ($100 \times \tfrac{\text{masa compuesto}}{\text{masa muestra}}$).
 
 Al exponer un material a rayos X de longitudes de onda cortas o a rayos gamma, pueden ionizarse los átomos que constituyen el material. La ionización consiste en eyección de uno o más electrones desde el átomo. Tanto los rayos X como los gamma pueden ser suficientemente energéticos para desprender electrones fuertemente ligados en los orbitales internos del átomo. Tal remoción electrónica deja en condición inestable a la estructura electrónica del átomo, y los electrones de orbitales más elevados «caen» hacia el orbital más bajo, que luego ocupan los huecos de los electrones internos desprendidos. En esta caída, o transición, se genera energía mediante emisión de un fotón. El valor de la energía de este corpúsculo es igual a la diferencia de energía entre los dos orbitales involucrados.
 
 Cada elemento posee orbitales electrónicos de energías características. Al producirse la remoción de un electrón de una capa interior por un fotón energético proveniente de una fuente primaria de radiación, un electrón de una capa exterior se desplaza y ocupa el hueco que se había formado. Existe una cantidad finita de variantes de esta transición (entre pares de capas electrónicas) y a las transiciones principales se les han asignado nombres: $K_{\alpha}, K_{\beta}, L_{\alpha}, \dots$. Cada una de estas transiciones produce un fotón fluorescente dotado de una energía característica que es igual a la diferencia de energía entre los orbitales inicial y final. La longitud de onda de esta radiación fluorescente se puede calcular a partir del postulado de Planck $\lambda = h \cdot c / E$, o si se prefiere, las longitudes de onda $\lambda$ características se pueden expresar como frecuencias, $f = c / \lambda$.
 
-Por ejemplo, la longitud de onda correspondiente a la linea espectral $K_{\alpha}$ para el sodio (Na) es de 1.191 nanómetros, que nos da una frecuencia equivalente de $\tfrac{299,792,458 \:\text{m/s}}{1.191 \times 10^{-9}\text{m}} = 251.7 \times 10^{15} \text{s}^{-1} = 251.7 \: \text{PHz}$.
+Por ejemplo, la longitud de onda correspondiente a la linea espectral $K_{\alpha}$ para el sodio (Na) es de 1.191 nanómetros [1], que nos da una frecuencia equivalente de $\tfrac{299,792,458 \:\text{m/s}}{1.191 \times 10^{-9}\text{m}} = 251.7 \times 10^{15} \text{s}^{-1} = 251.7 \: \text{PHz}$.
 
 ```{r}
 vluz <- 299792458
 lambdaNa <- 1.191 * 10^-9
-vluz/lambdaNa
 ```
 
-A continuación, graficaremos los espectros para las vasijas 60 y 83, que son las de menor (0.986% m/m) y mayor (17.586% m/m) concentración de óxido de sodio, respectivamente.
+A continuación, graficaremos los espectros (en escala logarítmica) para las vasijas 60 y 83, que son las de menor (0.986% m/m) y mayor (17.586% m/m) concentración de óxido de sodio, respectivamente. En gris, ĺa línea $K_{\alpha}$ del sodio, $\approx 251.7 \text{PHz}$:
 
 ```{r}
+dfx <- read_csv("../data/5-2-x.csv")
+dfy <- read_csv("../data/5-2-y.csv")
+
+extremos <- dfy %>% gather("oxido", "porc", -vasija) %>%
+  group_by(oxido) %>%
+  summarise(
+    idmax = which.max(porc),
+    idmin = which.min(porc)
+  )
+
+nafreq <- round(vluz/lambdaNa * 1e-15)
+
+df <- bind_cols(Na2O = dfy[["Na2O"]], dfx)
+
 df %>%
   gather("freq", "value", -vasija, -Na2O) %>%
   mutate(
@@ -62,44 +76,124 @@ df %>%
     freq = as.integer(freq)) %>%
   filter(vasija %in% c(60, 83)) %>%
 #  filter(freq >= 230, freq <= 280) %>%
-  ggplot(aes(freq, value, color = factor(vasija))) +
+  ggplot(aes(freq, log(value), color = factor(vasija))) +
   geom_line() +
   geom_vline(xintercept = vluz/lambdaNa*10^-15, alpha = 0.3) +
-  labs(x = "Frecuencia [PHz]", y = "Intensidad de emisión", color = "Vasija")
-
-dfy %>%
-  filter(vasija %in% c(83, 60)) 
-  ggplot(aes(Na2O)) +
-  geom_density()
-
-dfy %>% arrange(-Na2O)
+  labs(x = "Frecuencia [PHz]", y = "log(Intensidad de emisión)", color = "Vasija")
 ```
 
-A pesar de que el espectro de la vasija 60 presenta picos muy superiores a los de la 83 en varias frecuencias, en la frecuencia teóricamene calculada para el sodio, la vasija 83 tiene un pico _relativamente_ mucho más alto.
+¡Eureka! Efectivamente, la intensidad de emisión alrededor de los 252 PHz aumenta significativamente para la vasija de mayor concentración de sodio. 
 
-Aquí se nos presenta 
+Normalmente, un químico tiene una muestra pura del elemento cuya concentración se desea conocer, y utiliza su espectro como patrón de calibración para estimar la concentración en muestras de origen desconocido. Para aumentar la precisión, lo que se mide no es directamente la intensidad de la señal en la linea de emisión teórica, sino el _área debajo del espectro_, a la que se le resta una _línea de base_ de "ruido".
 
-En un procedimiento 1. Tomar una muestra de referencia, con una cantidad _conocida_ del elemento a medir, y pasarla por el espectrómetro.
+Trabajar de esta manera seguramente sirva para mejorar las estimaciones "mecánicas"que podemos proponer conociendo sólo de estadística, pero no es sencillo en las circunstancias actuales. Por un lado, no es fácil encontrar tablas con líneas de emisión para todos los elementos de interés, ni es obvio cómo transladar las cantidades relativas (los porcentajes masa/masa) a una escala absoluta (la intensidad de emisión) sin conocer la masa total de cada muestra. Además, el espectro está reducido a un región muy pequeña de frecuencias, y la precisión del instrumento parece más bien baja, ya que los picos alrededor de la linea teórica son bastante "gruesos" en general.
 
-Tener la variable respuesta medida en %m/m resulta inconveniente, ya que una muestra A podría tener un menor %m/m pero mayor masa absoluta de $\ce{Na2O}$ que otra muestra B, siempre y cuando la masa total de A sea lo suficientemente mayor a la de B. Luego, **el primer supuesto que haremos es que las muestras de cada vasija tienen la misma masa**.
-- cada fila de `Vessel_X` es el valor
+En su lugar, podemos plantear una línea de investigación menos ambiciosa: distinguir empíricamente las frecuencias donde se ven "picos" para cada elemento, buscar los estimadores forward y backward de entre dicho conjunto de frecuencias, y compararlos con los obtenidos de entre las frecuencias "múltiplo de 10" sugeridas por el enunciado. En el Apéndice incluimos gráficos similares al anterior para cada elemento, y de su análisis concluimos que existen 11 frecuencias "pico" en el espectro analizado: $\{100, 121, 145, 167, 195, 227, 252, 318, 351, 355, 386\}$ (el primer pico está por debajo de los 100PHz, pero esa es la primer frecuencia disponible; el pico de 351 está oculto debajo del de 355 en general, pero se ve claro para $\ce{K2O}$ y $\ce{MgO}$).
+
+Aprovechando que el paquete `leaps` nos permite calcular no sólo los estimadores "forward" y "backward", sino también los "exhaustivos" (para 50 o menos covariables), y el "stepwise", seleccionaremos el "mejor modelo" en dos pasos. Primero, buscaremos los mejores modelos por método, conjunto de frecuencias y cantidad de covariables, para las siguientes combinaciones:
+
 ```{r}
-library(leaps)
-regb <- regsubsets(formula(formulas$mod10), df, nvmax = 31, method = "backward")
-regf <- regsubsets(formula(formulas$mod10), df, nvmax = 31, method = "forward")
-rega <- regsubsets(formula(formulas$mod10), df, nvmax = 31, method = "exhaustive")
-s.regb <- summary(regb)
-s.rega <- summary(rega)
-s.regf <- summary(regf)
+estrategias <- list(
+  c(freqs = "mod10", metodo = "exhaustive"),
+  c(freqs = "picos", metodo = "exhaustive"),
+  c(freqs = "todas", metodo = "forward"),
+  c(freqs = "todas", metodo = "backward"),
+  c(freqs = "todas", metodo = "seqrep")
+)
 
-tibble(
-  nvar = 1:31,
-  adjr2 = s.regf$bic) %>%
-  ggplot(aes(nvar, adjr2)) +
-  geom_line()
+transpose(estrategias) %>%
+  as_tibble %>%
+  mutate_all(unlist) %>%
+  knitr::kable(col.names = c("Método", "Frecuencias")
+```
 
-which.max(summary(regb)$adjr2)
-summary(regf)$which[which.min(summary(regf)$bic),]
+Como los conjuntos "Módulo 10" ($p=31$) y "Picos" ($p=11$) son pequeños, buscaremos directamente los mojres estimadores con el método exhaustivo. Para "Todas" ($p=301$), buscaremos estimadores según cada uno de los métdos disponibles, hasta un total de 31 predictores. Evaluaremos la performance relativa según un criterio de validación cruzada similar al propuesto por el enunciado, pero más exigente: 40 repeticiones de 3-fold CV (120 vasijas para entrenamiento, y 60 para prueba en cada "pliego").
+
+
+```{r}
+formu <- function(freqs, oxido = "Na2O") {
+  as.formula(paste(
+    oxido,
+    str_c("`", freqs, "`", collapse = " + "), 
+    sep = " ~ "
+  ))
+}
+
+get_model_formulas <- function(object, outcome){
+  # get models data
+  models <- summary(object)$which[,-1]
+  # Get model predictors
+  predictors <- apply(models, 1, function(x) names(which(x == TRUE)))
+  predictors <- lapply(predictors, paste, collapse = " + ")
+  # Build model formula
+  map(str_c(outcome, " ~ ", predictors), as.formula)
+}
+
+frecuencias <- list(
+  mod10 = seq(100, 400, 10),
+  picos = c(100, 121, 145, 167, 195, 227, 252, 318, 351, 355, 386),
+  todas = 100:400
+)
+
+objetivo <- "Na2O"
+trCont <- trainControl(method = "repeatedcv", number = 3, repeats = 5)
+obs <- df[[objetivo]]
+
+resultados <- list()
+for (i in seq_along(estrategias)) {
+  x <- estrategias[[i]]
+  print(x)
+  freqs <- frecuencias[[x["freqs"]]]
+  metodo <- x["metodo"]
+  ret <- regsubsets(formu(freqs, objetivo), df, method = metodo, nvmax = 31)
+  formulas <- get_model_formulas(ret, objetivo)
+  for (j in seq_along(formulas)) {
+    f <- formulas[[j]]
+    print(f)
+    lmObj <- lm(f, df)
+    pred <- predict(lmObj)
+    trainObj <- train(f, df, method = "lm", trControl = trCont)
+
+    res <- list(
+      freqs = x["freqs"],
+      metodo = metodo,
+      nv = j,
+      f = f,
+      lmObj = lmObj,
+      trainObj = trainObj,
+      rmse_train = caret::RMSE(pred, obs),
+      rmse_test = trainObj$results$RMSE,
+      rmse_test_sd = trainObj$results$RMSESD
+    )
+    resultados <- c(resultados, list(res))
+  }
+}
+
+tresultados <- transpose(resultados)
+tresultados <- tresultados %>%
+  as_tibble() %>%
+  mutate_at(c("rmse_test", "rmse_test_sd", "nv", "rmse_train", "metodo", "freqs"), unlist)
+
+tresultados %>%
+  select(-lmObj, -trainObj) %>%
+  View()
+```
+
+A pesar de haber sido sometidos a una validación cruzada exigente, pareciera ser que no importa qué método y conjunto de frecuencias se elija, todos los estimadores se benefician de agregar más predictores: no sólo disminuye el RMS
+```{r}
+sintesis <- tresultados %>% select(-lmObj, -trainObj) %>%
+  mutate(grupo = str_c(metodo, " - ", freqs))
+
+for (g in unique(sintesis$grupo)) {
+  graf <- filter(sintesis, grupo == g) %>%
+    ggplot(aes(nv, rmse_test, group = grupo)) +
+    geom_line(alpha = 0.1) +
+    geom_point() +
+    geom_errorbar(mapping = aes(
+      ymin = rmse_test-rmse_test_sd, ymax=rmse_test+rmse_test_sd, width = 0.2)) +
+    facet_wrap(~ grupo)
+  print(graf)
+}
 ```
 
 ```{r}
@@ -118,4 +212,7 @@ t0 <- train(formula(formulas$mod10), method = "lm", data = df, trControl = train
 
 ```
 
+### Referencias
 
+[1] [Líneas de an'alisis para fluorescencia de rayos X](https://en.wikipedia.org/wiki/X-ray_fluorescence#/
+)
