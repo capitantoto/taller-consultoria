@@ -90,7 +90,7 @@ Trabajar de esta manera seguramente sirva para mejorar las estimaciones "mecáni
 
 En su lugar, podemos plantear una línea de investigación menos ambiciosa: distinguir empíricamente las frecuencias donde se ven "picos" para cada elemento, buscar los estimadores forward y backward de entre dicho conjunto de frecuencias, y compararlos con los obtenidos de entre las frecuencias "múltiplo de 10" sugeridas por el enunciado. En el Apéndice incluimos gráficos similares al anterior para cada elemento, y de su análisis concluimos que existen 11 frecuencias "pico" en el espectro analizado: $\{100, 121, 145, 167, 195, 227, 252, 318, 351, 355, 386\}$ (el primer pico está por debajo de los 100PHz, pero esa es la primer frecuencia disponible; el pico de 351 está oculto debajo del de 355 en general, pero se ve claro para $\ce{K2O}$ y $\ce{MgO}$).
 
-Aprovechando que el paquete `leaps` nos permite calcular no sólo los estimadores "forward" y "backward", sino también los "exhaustivos" (para 50 o menos covariables), y el "stepwise", seleccionaremos el "mejor modelo" en dos pasos. Primero, buscaremos los mejores modelos por método, conjunto de frecuencias y cantidad de covariables, para las siguientes combinaciones:
+Aprovechando que el paquete `leaps` nos permite calcular no sólo los estimadores "forward" y "backward", sino también los "exhaustivos" (para 50 o menos covariables), y el "stepwise", buscaremos los mejores modelos por método, conjunto de frecuencias y cantidad de covariables, para las siguientes combinaciones:
 
 ```{r}
 estrategias <- list(
@@ -104,13 +104,15 @@ estrategias <- list(
 transpose(estrategias) %>%
   as_tibble %>%
   mutate_all(unlist) %>%
-  knitr::kable(col.names = c("Método", "Frecuencias")
+  knitr::kable(col.names = c("Método", "Frecuencias"))
 ```
 
-Como los conjuntos "Módulo 10" ($p=31$) y "Picos" ($p=11$) son pequeños, buscaremos directamente los mojres estimadores con el método exhaustivo. Para "Todas" ($p=301$), buscaremos estimadores según cada uno de los métdos disponibles, hasta un total de 31 predictores. Evaluaremos la performance relativa según un criterio de validación cruzada similar al propuesto por el enunciado, pero más exigente: 40 repeticiones de 3-fold CV (120 vasijas para entrenamiento, y 60 para prueba en cada "pliego").
+Como los conjuntos "Módulo 10" ($p=31$) y "Picos" ($p=11$) son pequeños, buscaremos directamente los mejores estimadores con el método exhaustivo. Para "Todas" ($p=301$), buscaremos estimadores según cada uno de los métdos disponibles, hasta un total de 31 predictores.
 
+La selección del "mejor modelo" constará de dos pasos. Dividiremos los datos disponibles en un conjunto de entrenamiento (_train_, n=120) y uno de prueba (_test_, n=60). El conjunto de entrenamiento se usará para determinar los modelos candidatos, y de entre ellos elegiremos al que minimice el ECM en el conjunto de prueba. Sólo contamos con un conjunto de prueba, y por ende una única estimación puntual del ECM, no podemos estimar su varianza, y los criterios del estilo R1DE quedan descartados.
 
-```{r}
+```{r, eval=FALSE}
+# Esta celda esta cacheada para acelarar el proceso y fijar los resultados
 formu <- function(freqs, oxido = "Na2O") {
   as.formula(paste(
     oxido,
@@ -129,6 +131,8 @@ get_model_formulas <- function(object, outcome){
   map(str_c(outcome, " ~ ", predictors), as.formula)
 }
 
+
+
 frecuencias <- list(
   mod10 = seq(100, 400, 10),
   picos = c(100, 121, 145, 167, 195, 227, 252, 318, 351, 355, 386),
@@ -137,80 +141,242 @@ frecuencias <- list(
 
 objetivo <- "Na2O"
 trCont <- trainControl(method = "repeatedcv", number = 3, repeats = 5)
-obs <- df[[objetivo]]
-
+ciclos <- 50
 resultados <- list()
-for (i in seq_along(estrategias)) {
-  x <- estrategias[[i]]
-  print(x)
-  freqs <- frecuencias[[x["freqs"]]]
-  metodo <- x["metodo"]
-  ret <- regsubsets(formu(freqs, objetivo), df, method = metodo, nvmax = 31)
-  formulas <- get_model_formulas(ret, objetivo)
-  for (j in seq_along(formulas)) {
-    f <- formulas[[j]]
-    print(f)
-    lmObj <- lm(f, df)
-    pred <- predict(lmObj)
-    trainObj <- train(f, df, method = "lm", trControl = trCont)
 
-    res <- list(
-      freqs = x["freqs"],
-      metodo = metodo,
-      nv = j,
-      f = f,
-      lmObj = lmObj,
-      trainObj = trainObj,
-      rmse_train = caret::RMSE(pred, obs),
-      rmse_test = trainObj$results$RMSE,
-      rmse_test_sd = trainObj$results$RMSESD
-    )
-    resultados <- c(resultados, list(res))
-  }
+mse <- function(y, y_pred) {
+  mean((y - y_pred)^2)
 }
 
+for (h in seq.int(ciclos)) {
+  train_idx <- sample(c(rep(T, 120),rep(F, 60)), 180, replace = F)
+  df_train <- df[train_idx,]
+  df_test <- df[!train_idx,]
+  train_obs <- df_train[[objetivo]]
+  test_obs <- df_test[[objetivo]]
+  
+  for (i in seq_along(estrategias)) {
+    x <- estrategias[[i]]
+    freqs <- frecuencias[[x["freqs"]]]
+    metodo <- x["metodo"]
+    ret <- regsubsets(formu(freqs, objetivo), df_train, method = metodo, nvmax = 31)
+    formulas <- get_model_formulas(ret, objetivo)
+    
+    for (j in seq_along(formulas)) {
+      f <- formulas[[j]]
+      lmObj <- lm(f, df_train)
+      train_pred <- predict(lmObj)
+      test_pred <- predict(lmObj, newdata = df_test)
+      #trainObj <- train(f, df, method = "lm", trControl = trCont)
+  
+      res <- list(
+        ciclo = h,
+        freqs = x["freqs"],
+        metodo = metodo,
+        nv = j,
+        f = f,
+        lmObj = lmObj,
+        #trainObj = trainObj,
+        mse_train = mse(train_pred, train_obs),
+        mse_test = mse(test_pred, test_obs)#,
+        #rmse_test_sd = trainObj$results$RMSESD
+      )
+      resultados <- c(resultados, list(res))
+    }
+  }
+}
 tresultados <- transpose(resultados)
 tresultados <- tresultados %>%
   as_tibble() %>%
-  mutate_at(c("rmse_test", "rmse_test_sd", "nv", "rmse_train", "metodo", "freqs"), unlist)
+  mutate_at(c("ciclo", "mse_test", "nv", "mse_train", "metodo", "freqs"), unlist)
 
-tresultados %>%
-  select(-lmObj, -trainObj) %>%
-  View()
+res <- tresultados %>%
+  mutate(grupo = str_c(metodo, " - ", freqs)) %>%
+  select(-lmObj, -metodo, -freqs)
+  
+save(res, file="resultados-5-2.RData")
 ```
 
-A pesar de haber sido sometidos a una validación cruzada exigente, pareciera ser que no importa qué método y conjunto de frecuencias se elija, todos los estimadores se benefician de agregar más predictores: no sólo disminuye el RMS
-```{r}
-sintesis <- tresultados %>% select(-lmObj, -trainObj) %>%
-  mutate(grupo = str_c(metodo, " - ", freqs))
 
-for (g in unique(sintesis$grupo)) {
-  graf <- filter(sintesis, grupo == g) %>%
-    ggplot(aes(nv, rmse_test, group = grupo)) +
-    geom_line(alpha = 0.1) +
-    geom_point() +
-    geom_errorbar(mapping = aes(
-      ymin = rmse_test-rmse_test_sd, ymax=rmse_test+rmse_test_sd, width = 0.2)) +
-    facet_wrap(~ grupo)
-  print(graf)
+```{r}
+# Resultado de la celda anterior cacheado
+load("resultados-5-2.RData")
+```
+
+De los 135 modelos ajustados, a continuación presentamos los resultados para los 5 mejores:
+
+```{r}
+res %>%
+  filter(ciclo == 47) %>%
+  select(grupo, nv, mse_test, mse_train, f) %>%
+  arrange(mse_test) %>%
+  head(5) %>%
+  knitr::kable(
+    digits = 3,
+    col.names = c("Grupo", "# Vars.", "ECM Test", "ECM Train", "Formula"))
+```
+
+El ECM de prueba de los "mejores" modelos es prácticamente idéntico, lo cual hace algo dudosa la elección.  Para confirmar nuestra hipótesis, repetimos el proceso de selección con un nuevo "split" aleatorio entre entrenamiento y prueba, y obtenemos los siguientes resultados:
+
+```{r}
+res %>%
+  filter(ciclo == 6) %>%
+  select(grupo, nv, mse_test, mse_train, f) %>%
+  arrange(mse_test) %>%
+  head(5) %>%
+  knitr::kable(
+    digits = 3,
+    col.names = c("Grupo", "# Vars.", "ECM Test", "ECM Train", "Formula"))
+```
+
+¿Qué acaba de pasar? Se observa una reducción del 30% en el _mínimo_ ECM de test, lo cual nos hace dudar de los resultados en general. Repetimos el proceso unas cuantas veces más, y efectivamente, los "mejores" modelos cambian en cada iteración. Pensándolo bien, esto es de esperar: las covariables utilizadas (i.e., las frecuencias del espectro) están altamente correlacionadas (sobre todo con sus "vecinas" en el espectro) y el "split" de entrenamiento/prueba es bastante agresivo (reserva 1 de cada 3 datos). Si a esto le sumamos que los estimadores _backward_, _forward_ y secuencial son recursivamente dependientes entre sí, el conjunto de frecuencias "óptimo" puede variar significativamente entre splits.
+
+Demos un paso atrás, ignorando por el momento las covariables de cada modelo. A continuación, presentamos el ECM promedio de entre los modelos elegidos, por cantidad de variables, conjunto de frecuencias y método, para 50 repeticiones del mismo proceso:
+```{r}
+res %>%
+  gather("kind", "mse", -grupo, -nv, -ciclo, -f) %>%
+  group_by(grupo, kind, nv) %>%
+  summarise(mse = min(mse)) %>%
+  ggplot(aes(nv, mse, color = kind)) +
+  geom_line(alpha = 0.1) +
+  geom_point() +
+  scale_y_log10() +
+  facet_wrap(~ grupo)
+```
+
+En los promedios, alguna tendencia comienza a surgir. En todos los casos la mayor parte de la ganancia en términos de ECM sucede antes de las 10 covariables, pero
+- para los métodos _forward_, _backward_ y secuencial, se observa el tradicional "codo", a partir del cual agregar covariables al modelo sólo empeora la performance de prueba, mientras que
+- el método exhaustivo, tanto sobre las frecuencias "Mod 10" y "Picos", mejora a medida que se agregan covariables, toca un mínimo de ECM alrededor de 1, y se mantiene estable de allí en adelante.
+
+Centrémosnos entonces en la performance promedio de prueba, para todos los modelos de entre 3 y 11 covariables inclusive:
+
+```{r}
+res %>%
+  filter(nv > 2, nv <= 11) %>%
+  group_by(grupo, nv) %>%
+  summarise_at("mse_test", min) %>%
+  ggplot(aes(nv, mse_test, color = grupo)) +
+  geom_line(alpha = 0.1) +
+  geom_point() +
+  scale_y_log10()
+```
+
+Pareciera ser que el método exhaustivo es el que mejores modelos produce, y la performance es muy similar tanto para las frecuencias modulo 10 como para los picos empíricos. La ventaja de estos últimos, es que el modelo con 11 covariables está exactamente determinado en el caso de las frecuencias pico, pues es el modelo que las incluye a todas.
+
+A esta altura, nos parece razonable proponer, justamente, el modelo con las 11 frecuencias pico como el más "robusto" para la tarea a mano. Para asegurarnos que sea una elección razonable, y aprovechando que en ciclo #5 el modelo con todas las frecuencias pico minimizó el ECM, lo compararemos contra los otros 49 modelos que minimizaron el ECM en cada una de las repeticiones del proceso principal. Repetiremos 100 rondas de la misma estrategia de validación cruzada 120/60. A continuación los resultados:
+
+```{r}
+finalistas <- res %>%
+  group_by(ciclo) %>%
+  top_n(1, -mse_test)
+```
+
+
+```{r, eval=FALSE}
+reps <- 100
+score_length <- reps*ciclos
+
+scores <- list(
+  f = vector("list", score_length),
+  ciclo = vector("numeric", score_length),
+  rep_no = vector("numeric", score_length),
+  test_mse = vector("numeric", score_length),
+  train_mse = vector("numeric", score_length)
+)
+k <- 1
+for (i in seq.int(reps)) {
+  train_idx <- sample(c(rep(T, 120),rep(F, 60)), 180, replace = F)
+  df_train <- df[train_idx,]
+  df_test <- df[!train_idx,]
+  train_obs <- df_train[[objetivo]]
+  test_obs <- df_test[[objetivo]]
+  
+  for (j in seq.int(ciclos)) {
+    f <- finalistas$f[[j]]
+    lmObj <- lm(f, df_train)
+    train_pred <- predict(lmObj)
+    test_pred <- predict(lmObj, newdata = df_test)
+    
+    scores$f[[k]] <- f
+    scores$ciclo[[k]] <- j
+    scores$rep_no[[k]] <- i
+    scores$test_mse[[k]] <- mse(test_pred, test_obs)
+    scores$train_mse[[k]] <- mse(train_pred, train_obs)
+    
+    k <- k + 1
+  }
 }
+save(scores, file="scores-5-2.RData")
 ```
 
 ```{r}
-train(formula(formulas$mod10), method = "leapBackward", data = df, trControl = trCont, tuneGrid=data.frame(nvmax = 31))
-
-library(caret)
-trCont <- trainControl(method = "LGOCV", number = 100, p = 0.7)
-resumen <- tibble(
-  formula = map(formulas, formula),
-  train = map(formula, train, method = "lm", data = df, trControl = trCont)
-) %>%
-  mutate(resultados = map(train, "results")) %>%
-  unnest(resultados) %>%
-  select(-train)
-t0 <- train(formula(formulas$mod10), method = "lm", data = df, trControl = trainControl(method = "none"))
-
+load("scores-5-2.RData")
+scores_finales <- as_tibble(scores) %>%
+  group_by(ciclo) %>%
+  summarise_at(c("test_mse", "train_mse"), lst(mean, sd)) %>%
+  arrange(test_mse_mean) %>%
+  merge(finalistas, by="ciclo")
 ```
+
+Los mejores cinco modelos resultaron ser:
+
+```{r}
+scores_finales %>%
+  arrange(test_mse_mean) %>%
+  head(5) %>%
+  select(grupo, nv, f, test_mse_mean, test_mse_sd)
+```
+
+Y los peores 5:
+```{r}
+scores_finales %>%
+  arrange(test_mse_mean) %>%
+  tail(5) %>%
+  select(grupo, nv, f, test_mse_mean, test_mse_sd)
+```
+
+Los resultados definitivamente no son lo que esperábamos: no sólo los ya globalmente mejores modelos provienen de un método que creíamos descartado, sino que ¡nuestro principal candidato termino siendo _el peor_ modelo de la camada! A esta altura, es preferible no seguir sacando hipótesis de la galera, sino simplemente aceptar el modelo que nos sugiere el exhaustivo análisis empírico, y diagnosticarlo. Mencionaremos únicamente que haber hecho énfasis en el ECM _promedio_ por grupo y cantidad de variables entre todas las repeticiones, en lugar de tomar el _mínimo_ para dicha segmentación, terminó por esconder modelos de sumo interés.
+
+```{r}
+optimo <- finalistas$f[[45]]
+lm_optimo <- lm(optimo, df)
+
+glance(lm_optimo) %>%
+  transmute(
+    "R^2 aj." = as.character(signif(adj.r.squared, 3)),
+    "F obs." = as.character(signif(statistic, 3)),
+    "P-valor" = as.character(signif(p.value, 3))
+  ) %>%
+  knitr::kable()
+
+tidy(lm_optimo) %>%
+  transmute(
+    "Coef." = term,
+    "Estimado" = as.character(signif(estimate, 3)),
+    "P-valor" = as.character(signif(p.value, 3))
+  ) %>%
+  knitr::kable()
+```
+
+
+```{r}
+dffull <- augment(lm_optimo, data = df)
+
+dffull %>%
+  ggplot(aes(.fitted, .std.resid)) +
+  geom_point() +
+  labs(title = "Residuos estudentizadosen función del valor predicho",
+       x = "Contenido Predicho", y = "Residuo") +
+  theme(legend.position = "bottom")
+
+dffull %>%
+  ggplot(aes(sample = .resid)) +
+  geom_qq() +
+  geom_qq_line() +
+  labs(title = "QQ-plot de los residuos de predicción")
+```
+
+Debido a la extensa manipulación de datos para la selección de modelos, ningún p-valor presentado puede ser tomado como una verdadera probabilidad. Sin embargo, el ajuste es realmente impecable, y no se observa ninguna atipicidad en los _plots_ de diagnóstico.
 
 ### Referencias
 
