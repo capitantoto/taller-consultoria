@@ -12,6 +12,7 @@ urlcolor: blue
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
 options(tinytex.verbose = TRUE)
+options(knitr.table.format = "markdown")
 ```
 
 # Setup
@@ -19,7 +20,6 @@ options(tinytex.verbose = TRUE)
 library(tidyverse) # manipulación de datos en general, graficos
 library(leaps) # Estimadores forward, backward, exhaustive & stepwise
 library(broom) # limpieza y estructuracion de resultados de regresiones
-library(caret) # Validación cruzada para múltiples modelos
 ```
 
 # Ejercicio 2
@@ -109,7 +109,7 @@ transpose(estrategias) %>%
 
 Como los conjuntos "Módulo 10" ($p=31$) y "Picos" ($p=11$) son pequeños, buscaremos directamente los mejores estimadores con el método exhaustivo. Para "Todas" ($p=301$), buscaremos estimadores según cada uno de los métdos disponibles, hasta un total de 31 predictores.
 
-La selección del "mejor modelo" constará de dos pasos. Dividiremos los datos disponibles en un conjunto de entrenamiento (_train_, n=120) y uno de prueba (_test_, n=60). El conjunto de entrenamiento se usará para determinar los modelos candidatos, y de entre ellos elegiremos al que minimice el ECM en el conjunto de prueba. Sólo contamos con un conjunto de prueba, y por ende una única estimación puntual del ECM, no podemos estimar su varianza, y los criterios del estilo R1DE quedan descartados.
+La selección del "mejor modelo" constará de dos pasos. Dividiremos los datos disponibles en un conjunto de entrenamiento (_train_, n=120) y uno de prueba (_test_, n=60). El conjunto de entrenamiento se usará para determinar los modelos candidatos (uno por grupo de frecuencias, método y cantidad de variables), y de entre ellos elegiremos al que minimice el ECM en el conjunto de prueba. Contamos con un solo conjunto de prueba y por ende una única estimación puntual del ECM, así que no podemos estimar su varianza, y los criterios del estilo R1DE quedan descartados.
 
 ```{r, eval=FALSE}
 # Esta celda esta cacheada para acelarar el proceso y fijar los resultados
@@ -131,8 +131,6 @@ get_model_formulas <- function(object, outcome){
   map(str_c(outcome, " ~ ", predictors), as.formula)
 }
 
-
-
 frecuencias <- list(
   mod10 = seq(100, 400, 10),
   picos = c(100, 121, 145, 167, 195, 227, 252, 318, 351, 355, 386),
@@ -141,7 +139,7 @@ frecuencias <- list(
 
 objetivo <- "Na2O"
 trCont <- trainControl(method = "repeatedcv", number = 3, repeats = 5)
-ciclos <- 50
+ciclos <- 10
 resultados <- list()
 
 mse <- function(y, y_pred) {
@@ -207,7 +205,7 @@ De los 135 modelos ajustados, a continuación presentamos los resultados para lo
 
 ```{r}
 res %>%
-  filter(ciclo == 47) %>%
+  filter(ciclo == 10) %>%
   select(grupo, nv, mse_test, mse_train, f) %>%
   arrange(mse_test) %>%
   head(5) %>%
@@ -216,27 +214,12 @@ res %>%
     col.names = c("Grupo", "# Vars.", "ECM Test", "ECM Train", "Formula"))
 ```
 
-El ECM de prueba de los "mejores" modelos es prácticamente idéntico, lo cual hace algo dudosa la elección.  Para confirmar nuestra hipótesis, repetimos el proceso de selección con un nuevo "split" aleatorio entre entrenamiento y prueba, y obtenemos los siguientes resultados:
+Gráficamente, es interesante observar la evolución del ECM de entrenamiento y prueba para cada conjunto de frecuencia y método empleado. Aunque el ECM de entrenamiento siempre disminuye a medida que se agregan covariables, su equivalente de prueba tiende a empeorar a partir de cierto punto en que comienza el sobreajuste. Otro punto interesante, es que aunque el "mejor" modelo proviene de otro conjunto de frecuencias, la performance del grupo de "picos" es muy buena aún con pocas covariables, y no se observa un sobreajuste a medida que agregamos predictores: evidentemente, se trate de frecuencias informativas.
 
 ```{r}
 res %>%
-  filter(ciclo == 6) %>%
-  select(grupo, nv, mse_test, mse_train, f) %>%
-  arrange(mse_test) %>%
-  head(5) %>%
-  knitr::kable(
-    digits = 3,
-    col.names = c("Grupo", "# Vars.", "ECM Test", "ECM Train", "Formula"))
-```
-
-¿Qué acaba de pasar? Se observa una reducción del 30% en el _mínimo_ ECM de test, lo cual nos hace dudar de los resultados en general. Repetimos el proceso unas cuantas veces más, y efectivamente, los "mejores" modelos cambian en cada iteración. Pensándolo bien, esto es de esperar: las covariables utilizadas (i.e., las frecuencias del espectro) están altamente correlacionadas (sobre todo con sus "vecinas" en el espectro) y el "split" de entrenamiento/prueba es bastante agresivo (reserva 1 de cada 3 datos). Si a esto le sumamos que los estimadores _backward_, _forward_ y secuencial son recursivamente dependientes entre sí, el conjunto de frecuencias "óptimo" puede variar significativamente entre splits.
-
-Demos un paso atrás, ignorando por el momento las covariables de cada modelo. A continuación, presentamos el ECM promedio de entre los modelos elegidos, por cantidad de variables, conjunto de frecuencias y método, para 50 repeticiones del mismo proceso:
-```{r}
-res %>%
+  filter(ciclo==1) %>%
   gather("kind", "mse", -grupo, -nv, -ciclo, -f) %>%
-  group_by(grupo, kind, nv) %>%
-  summarise(mse = min(mse)) %>%
   ggplot(aes(nv, mse, color = kind)) +
   geom_line(alpha = 0.1) +
   geom_point() +
@@ -244,102 +227,17 @@ res %>%
   facet_wrap(~ grupo)
 ```
 
-En los promedios, alguna tendencia comienza a surgir. En todos los casos la mayor parte de la ganancia en términos de ECM sucede antes de las 10 covariables, pero
-- para los métodos _forward_, _backward_ y secuencial, se observa el tradicional "codo", a partir del cual agregar covariables al modelo sólo empeora la performance de prueba, mientras que
-- el método exhaustivo, tanto sobre las frecuencias "Mod 10" y "Picos", mejora a medida que se agregan covariables, toca un mínimo de ECM alrededor de 1, y se mantiene estable de allí en adelante.
-
-Centrémosnos entonces en la performance promedio de prueba, para todos los modelos de entre 3 y 11 covariables inclusive:
+A continuación, presentamos los principales resultados del modelo elegido, junto con los gráficos de diagnóstico típicos. Vale recordar que los p-valores enunciados son estimativos, y debido a la selección de modelos no constituyen verdaderas probabilidades.
 
 ```{r}
-res %>%
-  filter(nv > 2, nv <= 11) %>%
-  group_by(grupo, nv) %>%
-  summarise_at("mse_test", min) %>%
-  ggplot(aes(nv, mse_test, color = grupo)) +
-  geom_line(alpha = 0.1) +
-  geom_point() +
-  scale_y_log10()
-```
+f_optima <- res %>%
+  filter(ciclo == 10) %>%
+  arrange(mse_test) %>%
+  head(1) %>%
+  pluck("f") %>%
+  .[[1]]
 
-Pareciera ser que el método exhaustivo es el que mejores modelos produce, y la performance es muy similar tanto para las frecuencias modulo 10 como para los picos empíricos. La ventaja de estos últimos, es que el modelo con 11 covariables está exactamente determinado en el caso de las frecuencias pico, pues es el modelo que las incluye a todas.
-
-A esta altura, nos parece razonable proponer, justamente, el modelo con las 11 frecuencias pico como el más "robusto" para la tarea a mano. Para asegurarnos que sea una elección razonable, y aprovechando que en ciclo #5 el modelo con todas las frecuencias pico minimizó el ECM, lo compararemos contra los otros 49 modelos que minimizaron el ECM en cada una de las repeticiones del proceso principal. Repetiremos 100 rondas de la misma estrategia de validación cruzada 120/60. A continuación los resultados:
-
-```{r}
-finalistas <- res %>%
-  group_by(ciclo) %>%
-  top_n(1, -mse_test)
-```
-
-
-```{r, eval=FALSE}
-reps <- 100
-score_length <- reps*ciclos
-
-scores <- list(
-  f = vector("list", score_length),
-  ciclo = vector("numeric", score_length),
-  rep_no = vector("numeric", score_length),
-  test_mse = vector("numeric", score_length),
-  train_mse = vector("numeric", score_length)
-)
-k <- 1
-for (i in seq.int(reps)) {
-  train_idx <- sample(c(rep(T, 120),rep(F, 60)), 180, replace = F)
-  df_train <- df[train_idx,]
-  df_test <- df[!train_idx,]
-  train_obs <- df_train[[objetivo]]
-  test_obs <- df_test[[objetivo]]
-  
-  for (j in seq.int(ciclos)) {
-    f <- finalistas$f[[j]]
-    lmObj <- lm(f, df_train)
-    train_pred <- predict(lmObj)
-    test_pred <- predict(lmObj, newdata = df_test)
-    
-    scores$f[[k]] <- f
-    scores$ciclo[[k]] <- j
-    scores$rep_no[[k]] <- i
-    scores$test_mse[[k]] <- mse(test_pred, test_obs)
-    scores$train_mse[[k]] <- mse(train_pred, train_obs)
-    
-    k <- k + 1
-  }
-}
-save(scores, file="scores-5-2.RData")
-```
-
-```{r}
-load("scores-5-2.RData")
-scores_finales <- as_tibble(scores) %>%
-  group_by(ciclo) %>%
-  summarise_at(c("test_mse", "train_mse"), lst(mean, sd)) %>%
-  arrange(test_mse_mean) %>%
-  merge(finalistas, by="ciclo")
-```
-
-Los mejores cinco modelos resultaron ser:
-
-```{r}
-scores_finales %>%
-  arrange(test_mse_mean) %>%
-  head(5) %>%
-  select(grupo, nv, f, test_mse_mean, test_mse_sd)
-```
-
-Y los peores 5:
-```{r}
-scores_finales %>%
-  arrange(test_mse_mean) %>%
-  tail(5) %>%
-  select(grupo, nv, f, test_mse_mean, test_mse_sd)
-```
-
-Los resultados definitivamente no son lo que esperábamos: no sólo los ya globalmente mejores modelos provienen de un método que creíamos descartado, sino que ¡nuestro principal candidato termino siendo _el peor_ modelo de la camada! A esta altura, es preferible no seguir sacando hipótesis de la galera, sino simplemente aceptar el modelo que nos sugiere el exhaustivo análisis empírico, y diagnosticarlo. Mencionaremos únicamente que haber hecho énfasis en el ECM _promedio_ por grupo y cantidad de variables entre todas las repeticiones, en lugar de tomar el _mínimo_ para dicha segmentación, terminó por esconder modelos de sumo interés.
-
-```{r}
-optimo <- finalistas$f[[45]]
-lm_optimo <- lm(optimo, df)
+lm_optimo <- lm(f_optima, df)
 
 glance(lm_optimo) %>%
   transmute(
@@ -376,9 +274,39 @@ dffull %>%
   labs(title = "QQ-plot de los residuos de predicción")
 ```
 
-Debido a la extensa manipulación de datos para la selección de modelos, ningún p-valor presentado puede ser tomado como una verdadera probabilidad. Sin embargo, el ajuste es realmente impecable, y no se observa ninguna atipicidad en los _plots_ de diagnóstico.
+Mas allá de un potencial outlier en el gráfico de residuos versus predichos, el modelo aprece ajustar más que adecuadamente. Antes de concluir, una palabra de cautela: en casos como este, en que hay más predictores que variables, las técnicas de validación cruzada no garantizan elegir el "mejor" modelo, ya que lo que conseguimos es más bien el modelo mejor ajustado al conjunto de entrenamiento. Para ilustrarlo, a continuación presentamos los "mejores modelos" obtenidos con este mismo proceso, en 10 procedimientos idénticos salvo por la elección aleatoria de los conjuntos de prueba y entrenamiento. El lector inquieto puede comprobar personalmente que los gráficos de diagnóstico son sumamente buenos para todos ellos:
 
-### Referencias
+```{r}
+res %>%
+  filter(ciclo %in% c(1, 5:10)) %>% 
+  group_by(ciclo) %>%
+  top_n(1, -mse_test) %>%
+  ungroup() %>%
+  select(grupo, nv, mse_test, mse_train, f) %>%
+  knitr::kable(
+    digits = 3,
+    col.names = c("Grupo", "# Vars.", "ECM Test", "ECM Train", "Formula"))
+```
 
-[1] [Líneas de an'alisis para fluorescencia de rayos X](https://en.wikipedia.org/wiki/X-ray_fluorescence#/
+Honestamente, no resulta intuitivo cómo avanzar en situaciones como ésta, así que habiendo obtenido un ajuste más que razonable, concluimos aquí la exploiración de los datos.
+
+## Referencias
+
+[1] [Líneas de análisis para fluorescencia de rayos X](https://en.wikipedia.org/wiki/X-ray_fluorescence#/
 )
+
+## Apéndice: Comparación de espectros para vasijas con mínimas y máximas cantidades de cada elemento.
+
+![](imagenes/Al2O3 _dif.png)
+![](imagenes/BaO _dif.png)
+![](imagenes/CaO _dif.png)
+![](imagenes/Cl _dif.png)
+![](imagenes/Fe2O3 _dif.png)
+![](imagenes/K2O _dif.png)
+![](imagenes/MgO _dif.png)
+![](imagenes/MnO _dif.png)
+![](imagenes/Na2O _dif.png)
+![](imagenes/P2O5 _dif.png)
+![](imagenes/PbO _dif.png)
+![](imagenes/SiO2 _dif.png)
+![](imagenes/SO3 _dif.png)
