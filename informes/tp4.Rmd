@@ -178,7 +178,7 @@ df1full %>%
 shapiro1 <- shapiro.test(df1full$.resid)
 ```
 
-Lamentablemente, el gráfico cuantil-cuantil de los residuos de predicción revela que el supuesto de normalidad en los $\epsilon_{ij}$ no es realmente sostenible. Sin embargo, en este caso la distribución de los residuos se diferencia de la normal, en que tiene colas _más livianas/cortas_ que aquéfilter(df2, !loc %in% best_low)lla, en lugar de más pesadas/largas. Luego, es sostenible que esta violación del supuesto de normalidad no afecte significativamente los resultados.
+Lamentablemente, el gráfico cuantil-cuantil de los residuos de predicción revela que el supuesto de normalidad en los $\epsilon_{ij}$ no es realmente sostenible. Sin embargo, en este caso la distribución de los residuos se diferencia de la normal, en que tiene colas _más livianas/cortas_ que aquélla, en lugar de más pesadas/largas. Luego, es sostenible que esta violación del supuesto de normalidad no afecte significativamente los resultados.
 
 A pesar de la evidente heterocedasticidad original de las observaciones, hemos obtenido un ajuste bastante satisfactorio para los datos, con una directa interpretación física. Sabemos que cuando asumimos erróneamente una matriz de covarianza $\sigma^2 I_n$ en lugar de la verdadera $V$, los estimadores de los parámetros del modelo $\hat{\beta}$ son insesgados, pero no los de menor varianza. Así y todo, hemos obtenido unos estimadores indudablemente distintos a cero, con lo cual podemos en principio confiar en ellos, ya que de usar la verdadera matriz de covarianza su significación debería mejorar.
 
@@ -240,7 +240,7 @@ Dado que las varianzas entre diferentes poblaciones son tan heterogéneas, no po
 
 > Se dan los rendimientos de 4 variedades de trigo en 13 localidades de Oklahoma. Interesa determinar qué variedades son  recomendables.
 
-Si graficamos los perfiles de rendimiento en función de la localidad, con las localidades ordenadas crecientemente en rendimiento promedio para mejroar la visibilidad, vemos que las variedades de maíces se entremezclan en las localidades de menor rinde, y se separan un poco mejor en las de mayor rinde, aunque todavía con cruzamientos significativos para las variedades 1, 2 y 4:
+Si graficamos los perfiles de rendimiento en función de la localidad, con las localidades ordenadas crecientemente en rendimiento promedio para mejorar la visibilidad, vemos que las variedades de maíces se entremezclan en las localidades de menor rinde, y se separan un poco mejor en las de mayor rinde, aunque todavía con cruzamientos significativos para las variedades 1, 2 y 4:
 
 ```{r}
 tipo_cols <- cols(
@@ -272,7 +272,7 @@ augment(lm2, df2) %>%
        x = "Rinde predicho", y = "Residuo")
 ```
 
-Al tener una sola observación por celda, no podemos plantear un modelo con interacciones "completas", ya que nos quedaríamos sin grados de libertad para estimar los residuos. En su lugar, podemos plantear un modelo menos ambicioso, como el de "1 GL para la no-aditividad" de Tukey. Comenzamos por agregar una nueva covariable al modelo, $\text{int}=\hat{\alpha}_i\times \hat{\beta}_j$, donde $\alpha_i,\beta_j$ son los coeficientes qeu acompañan a la localidad $i$ y la variedad $j$, y los "sombreros" indican que los hemos estimado (como la diferencia entre la media general, y las medias por localidad y variedad, respectivamente). 
+Al tener una sola observación por celda, no podemos plantear un modelo con interacciones "completas", ya que nos quedaríamos sin grados de libertad para estimar los residuos. En su lugar, podemos plantear un modelo menos ambicioso, como el de "1 GL para la no-aditividad" de Tukey. Comenzamos por agregar una nueva covariable al modelo, $\text{int}=\hat{\alpha}_i\times \hat{\beta}_j$, donde $\alpha_i,\beta_j$ son los coeficientes que acompañan a la localidad $i$ y la variedad $j$, y los "sombreros" indican que los hemos estimado (como la diferencia entre la media general, y las medias por localidad y variedad, respectivamente).
 
 La estructura de los residuos no desaparece del todo - y aparecen algunos potenciales outliers -, pero si observamos la "tabla de ANOVA" tradicional, vemos que la inclusión del término interactivo reduce aproximadamente a la mitad la suma de cuadrados no explicada.
 ```{r}
@@ -301,7 +301,7 @@ augment(lm2_, df2_) %>%
 
 A esta altura, tenemos evidencia irremontable a favor de la existencia de interacciones, lo cual resultaba intuitivamente obvio al ver el gráfico de perfiles. ¿Cómo continuamos el análisis, si todavía pretendemos dar alguna recomendación sobre qué variedades convienen en cada localidad? Usando el modelo con 1GL para las interacciones, podríamos ordenar las variedades según las predicciones en cada localidad, pero deberíamos dar una recomendación distinta en cada una, lo cual no es mucho mejor que simplemente mirar los datos crudos.
 
-Una alternativa algo más parsimoniosa, consiste en plantear la existencia de dos subconjuntos de localidades, dentro de los cuales el modelo aditivo es sostenible, y por ende es factible dar una recomendación general. Con 13 localidades, e ignorando subconjuntos vacíos, hay $2^{12}-1=4095$ particiones posibles, con lo cual el enfoque de "probarlas todas" no resulta factible. En su lugar, vamos a considerar las 12 particiones que surgen de ordenar las localidades de menor a mayor rinde promedio, y separar las $i \in \{1,\dots,12\}$ de menor rinde por un lado (digamos, donde $rindeBajo =1$), y las $13 - i$ de mayor rinde por otro. Para cada una de las 12 particiones, ajustaremos un modelo del estilo $rinde \sim localidad + variedad \times rindeBajo$, con distintos coeficientes para cada variedad dependiendo del régimen de la localidad. Incluimos la "no-partición" con las 13 localidadades en el regímen de rinde bajo como testigo.
+Una alternativa algo más parsimoniosa, consiste en plantear la existencia de dos subconjuntos de localidades, dentro de los cuales el modelo aditivo es sostenible, y por ende es factible dar una recomendación general. Con 13 localidades, e ignorando subconjuntos vacíos, hay $2^{12}-1=4095$ particiones posibles, con lo cual el enfoque de "probarlas todas" no resulta factible. En su lugar, vamos a considerar las 12 particiones que surgen de ordenar las localidades de menor a mayor rinde promedio, y separar las $i \in \{1,\dots,12\}$ de menor rinde por un lado (digamos, donde $rindeBajo =1$), y las $13 - i$ de mayor rinde por otro. Para cada una de las 12 particiones, ajustaremos un modelo del estilo $rinde \sim localidad + variedad \times rindeBajo$, con distintos coeficientes para cada variedad dependiendo del régimen de la localidad. Incluimos la "no-partición" con las 13 localidadades en el régimen de rinde bajo como testigo.
 
 Para morigerar la posibilidad de sobreajuste, compararemos los 12 modelos a través de la raíz del ECM ($\widehat{RMSE}$), estimada con una estrategia de validación cruzada exigente (40 repeticiones de 10-fold CV). Los resultados obtenidos son:
 
@@ -369,7 +369,7 @@ augment(lm2_all, df2) %>%
   theme(legend.position = "none")
 ```
 
-Como hemos utilizado los mismo datos para la elección y el ajuste del modelo, no podemos hacer interpretaciones formales de los tradicionales p-valores de significatividad global, de los coeficientes, y en comparaciones múltiples, pero los presentamos a modo ilustrativo, para dar una idea intuitiva de lo conseguido. Para facilitar la comprensión, presentamos los estadísticos de significatividad global, efectos principales e interacciones para el modelo "completo", y los coeficientes de la regresión de cada regímen por separado:
+Como hemos utilizado los mismo datos para la elección y el ajuste del modelo, no podemos hacer interpretaciones formales de los tradicionales p-valores de significatividad global, de los coeficientes, y en comparaciones múltiples, pero los presentamos a modo ilustrativo, para dar una idea intuitiva de lo conseguido. Para facilitar la comprensión, presentamos los estadísticos de significatividad global, efectos principales e interacciones para el modelo "completo", y los coeficientes de la regresión de cada régimen por separado:
 
 ```{r}
 glance(lm2_all) %>%
@@ -379,7 +379,10 @@ glance(lm2_all) %>%
     "P-valor" = as.character(signif(p.value, 3))
   ) %>%
   knitr::kable()
+```
 
+
+```{r}
 tidy(anova(lm2_all)) %>%
   transmute(
     "Coefs" = term,
@@ -391,7 +394,7 @@ tidy(anova(lm2_all)) %>%
   knitr::kable()
 ```
 
-
+<!-- -->
 ```{r}
 tidy(lm2_low) %>%
   transmute(
@@ -400,7 +403,10 @@ tidy(lm2_low) %>%
     "P-valor" = as.character(signif(p.value, 3))
   ) %>%
   knitr::kable(caption = "Coeficientes para localidades de bajo rinde.")
+```
 
+
+```{r}
 tidy(lm2_high) %>%
   transmute(
     "Coef." = term,
@@ -410,15 +416,19 @@ tidy(lm2_high) %>%
   knitr::kable(caption = "Coeficientes para localidades de alto rinde.")
 ```
 
-Para concluir, presentamos los IC simultáneos "honestos" de Tukey para diferencia de medias entre variedades, para cada regímen por separado:
+Para concluir, presentamos los IC simultáneos "honestos" de Tukey para diferencia de medias entre variedades, para cada régimen por separado:
 
 ```{r}
 TukeyHSD(aov(lm2_low))$var %>%
   knitr::kable(digits = 3, col.names = c("Estimado", "Lím. inf. IC", "Lím. sup. IC", "P-valor"),
-               caption = "ICs para diferenciasentre variedades, en localidades de bajo rinde.")
+               caption = "ICs para diferencias entre variedades, en localidades de bajo rinde.")
+```
+
+
+```{r}
 TukeyHSD(aov(lm2_high))$var %>%
     knitr::kable(digits = 3, col.names = c("Estimado", "Lím. inf. IC", "Lím. sup. IC", "P-valor"),
-                 caption = "ICs para diferenciasentre variedades, en localidades de bajo rinde.")
+                 caption = "ICs para diferencias entre variedades, en localidades de bajo rinde.")
 ```
 
 Aún asumiendo que los p-valores de los intervalos de confianza simultáneos estén "inflados" por la selección de modelos, es razonable concluir que:
@@ -427,7 +437,7 @@ Aún asumiendo que los p-valores de los intervalos de confianza simultáneos est
 - en localidades de rindes altos (2, 1, 5, 10, 8, 13 y 7), 
   - la variedad 1 es claramente mejor que todas las demás,
   - las variedades 2 y 4 son prácticamente idénticas, y
-  - las variedades 2 y 4 son un algo mejores que la 3.
+  - las variedades 2 y 4 son algo mejores que la 3.
 
 # Ejercicio 3
 
