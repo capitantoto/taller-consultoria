@@ -141,7 +141,7 @@ tidy(anova(lm1)) %>%
   transmute(
     "Coefs" = term,
     "GL" = df,
-    "C. Medios" = as.character(signif(statistic, 3)),
+    "C. Medios" = as.character(signif(meansq, 3)),
     "F obs." = as.character(signif(statistic, 3)),
     "P-valor" = as.character(signif(p.value, 3))
   ) %>%
@@ -384,7 +384,7 @@ tidy(anova(lm2_all)) %>%
   transmute(
     "Coefs" = term,
     "GL" = df,
-    "C. Medios" = as.character(signif(statistic, 3)),
+    "C. Medios" = as.character(signif(meansq, 3)),
     "F obs." = as.character(signif(statistic, 3)),
     "P-valor" = as.character(signif(p.value, 3))
   ) %>%
@@ -609,7 +609,7 @@ tidy(anova(lm3)) %>%
   transmute(
     "Coefs" = term,
     "GL" = df,
-    "C. Medios" = as.character(signif(statistic, 3)),
+    "C. Medios" = as.character(signif(meansq, 3)),
     "F obs." = as.character(signif(statistic, 3)),
     "P-valor" = as.character(signif(p.value, 3))
   ) %>%
